@@ -11,12 +11,13 @@ from goldenverba.components.interfaces import (
     Retriever,
     Generator,
 )
-
+import logging
 from goldenverba.components.reader.BasicReader import BasicReader
 from goldenverba.components.reader.GitReader import GitHubReader
 from goldenverba.components.reader.GitLabReader import GitLabReader
 from goldenverba.components.reader.UnstructuredAPI import UnstructuredReader
-
+from goldenverba.components.reader.CustomMemeReader import CustomMemeReader
+from goldenverba.components.chunking.MemeChunker import MemeChunker
 from goldenverba.components.chunking.TokenChunker import TokenChunker
 
 from goldenverba.components.embedding.ADAEmbedder import ADAEmbedder
@@ -51,8 +52,12 @@ class ReaderManager:
             "GitHubReader": GitHubReader(),
             "GitLabReader": GitLabReader(),
             "UnstructuredAPI": UnstructuredReader(),
+            "CustomMemeReader": CustomMemeReader(),
         }
-        self.selected_reader: str = "BasicReader"
+        self.selected_reader: str = "CustomMemeReader"
+        print(f"ReaderManager initialized. Available readers: {list(self.readers.keys())}")
+        print(f"Default reader set to: {self.selected_reader}")
+
 
     def load(
         self, fileData: list[FileData], textValues: list[str], logging: list[dict]
@@ -106,6 +111,7 @@ class ChunkerManager:
     def __init__(self):
         self.chunker: dict[str, Chunker] = {
             "TokenChunker": TokenChunker(),
+            "MemeChunker": MemeChunker(),
         }
         self.selected_chunker: str = "TokenChunker"
 
@@ -134,13 +140,14 @@ class ChunkerManager:
             return chunked_docs, logging
         return []
 
-    def set_chunker(self, chunker: str) -> bool:
-        if chunker in self.chunker:
-            msg.info(f"Setting CHUNKER to {chunker}")
-            self.selected_chunker = chunker
-            return True
+
+
+    def set_chunker(self, chunker_name: str):
+        if chunker_name in self.chunker:
+            self.selected_chunker = chunker_name
+            print(f"Chunker set to: {chunker_name}")
         else:
-            msg.warn(f"Chunker {chunker} not found")
+            print(f"Chunker {chunker_name} not found. Using default chunker: {self.selected_chunker}")
             return False
 
     def get_chunkers(self) -> dict[str, Chunker]:

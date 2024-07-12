@@ -7,6 +7,8 @@ from wasabi import msg
 from weaviate.embedded import EmbeddedOptions
 
 import goldenverba.components.schema.schema_generation as schema_manager
+from goldenverba.components.chunking.MemeChunker import MemeChunker
+
 
 from goldenverba.components.chunk import Chunk
 from goldenverba.components.document import Document
@@ -47,6 +49,7 @@ class VerbaManager:
 
         self.verify_installed_libraries()
         self.verify_variables()
+        self.set_meme_chunker()
 
         # Check if all schemas exist for all possible vectorizers
         for vectorizer in schema_manager.VECTORIZERS:
@@ -84,8 +87,12 @@ class VerbaManager:
 
         return modified_documents, logging
 
+    def set_meme_chunker(self):
+        self.chunker_manager.set_chunker("MemeChunker")
+
+
     def reader_set_reader(self, reader: str) -> bool:
-        self.reader_manager.set_reader(reader)
+        self.reader_manager.set_reader("CustomMemeReader")
 
     def reader_get_readers(self) -> dict[str, Reader]:
         return self.reader_manager.get_readers()
@@ -509,7 +516,40 @@ class VerbaManager:
                 self.generator_manager.selected_generator
             ],
         )
-        return chunks, context
+        
+        print(f"Retrieved {len(chunks)} chunks")
+        
+        processed_chunks = []
+        for i, chunk in enumerate(chunks):
+            print(f"Chunk {i}: {chunk.to_dict()}")
+            
+            # Retrieve the full document data for this chunk
+            doc_id = chunk.doc_uuid
+            full_doc = self.retrieve_document(doc_id)
+            
+            if full_doc:
+                doc_properties = full_doc.get("properties", {})
+                
+                # Update chunk with additional information
+                chunk.set_public_id(doc_properties.get("id", ""))
+                chunk.set_tags(doc_properties.get("tags", []))
+                
+                # Add template_images to chunk's meta
+                chunk.meta["template_images"] = doc_properties.get("template_images", [])
+            
+            processed_chunks.append(chunk)
+
+        chunk_info = [{"public_id": chunk.public_id, "tags": chunk.tags} for chunk in processed_chunks]
+        
+        # Get the first template image's public_id
+        first_template_public_id = ''
+        if processed_chunks and processed_chunks[0].meta.get('template_images'):
+            first_template_public_id = processed_chunks[0].meta['template_images'][0]
+        
+        print(f"First chunk meta: {processed_chunks[0].meta if processed_chunks else 'No chunks'}")
+        print(f"First template public_id: {first_template_public_id}")
+
+        return processed_chunks, context, chunk_info, first_template_public_id
 
     def retrieve_all_documents(self, doc_type: str, page: int, pageSize: int) -> list:
         """Return all documents from Weaviate
@@ -527,7 +567,7 @@ class VerbaManager:
             query_results = (
                 self.client.query.get(
                     class_name=class_name,
-                    properties=["doc_name", "doc_type", "doc_link"],
+                    properties = ["doc_name", "doc_type", "doc_link", "text", "timestamp", "tags", "example_images", "template_images", "views", "comments", "type", "status"],
                 )
                 .with_additional(properties=["id"])
                 .with_limit(pageSize)
@@ -652,6 +692,10 @@ class VerbaManager:
     ):
 
         semantic_result = None
+        chunks, context, chunk_info, first_template_public_id = self.retrieve_chunks(queries)  # Updated to unpack 4 values
+
+        print(f"Retrieved chunks with public_ids: {[chunk['public_id'] for chunk in chunk_info]} and tags: {[chunk['tags'] for chunk in chunk_info]}")
+        print(f"First template public_id: {first_template_public_id}")
 
         if self.enable_caching:
             semantic_query = self.embedder_manager.embedders[
@@ -670,20 +714,49 @@ class VerbaManager:
                 "finish_reason": "stop",
                 "cached": True,
                 "distance": distance,
+                "images": [{"public_id": chunk["public_id"]} for chunk in chunk_info if chunk["public_id"]],
+                "public_id": [chunk["public_id"] for chunk in chunk_info if chunk["public_id"]],
+                "tags": [chunk["tags"] for chunk in chunk_info if chunk["tags"]],
+                "template_public_id": first_template_public_id
             }
 
         else:
             full_text = ""
             async for result in self.generator_manager.generators[
                 self.generator_manager.selected_generator
-            ].generate_stream(queries, contexts, conversation):
+            ].generate_stream(queries, [context], conversation):
                 full_text += result["message"]
+                result["images"] = [{"public_id": chunk["public_id"]} for chunk in chunk_info if chunk["public_id"]]
+                result["public_id"] = [chunk["public_id"] for chunk in chunk_info if chunk["public_id"]]
+                result["tags"] = [chunk["tags"] for chunk in chunk_info if chunk["tags"]]
+                result["template_public_id"] = first_template_public_id
+                print(f"Yielding chunk with public_ids: {result['public_id']}, tags: {result['tags']}, and template_public_id: {result['template_public_id']}")
                 yield result
             if self.enable_caching:
                 self.set_suggestions(" ".join(queries))
                 self.embedder_manager.embedders[
                     self.embedder_manager.selected_embedder
                 ].add_to_semantic_cache(self.client, semantic_query, full_text)
+
+    def debug_print_document(self, doc_name):
+        class_name = "VERBA_Document_" + schema_manager.strip_non_letters(
+            self.embedder_manager.embedders[
+                self.embedder_manager.selected_embedder
+            ].vectorizer
+        )
+        
+        result = (
+            self.client.query.get(class_name, ["doc_name", "text", "tags", "example_images", "template_images"])
+            .with_where({
+                "path": ["doc_name"],
+                "operator": "Equal",
+                "valueString": doc_name
+            })
+            .do()
+        )
+    
+        print(f"Debug: Document data for {doc_name}")
+        print(json.dumps(result, indent=2))
 
     def reset(self):
         self.client.schema.delete_class("VERBA_Suggestion")

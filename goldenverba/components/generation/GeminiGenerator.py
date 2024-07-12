@@ -1,5 +1,4 @@
 import os
-
 try:
     import vertexai.preview
     from vertexai.preview.generative_models import GenerativeModel, Content, Part

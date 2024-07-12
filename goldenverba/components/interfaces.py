@@ -2,6 +2,7 @@ from goldenverba.components.document import Document
 from goldenverba.components.chunk import Chunk
 from goldenverba.components.types import InputText, FileData, InputNumber
 
+import logging
 import os
 import time
 from dotenv import load_dotenv
@@ -199,6 +200,9 @@ class Embedder(VerbaComponent):
                         "doc_link": str(document.link),
                         "chunk_count": len(document.chunks),
                         "timestamp": str(document.timestamp),
+                        "tags": document.tags,  # Add tags
+                        "template_images": document.template_images,  # Add template_images
+                        "example_images": document.example_images,  # Add example_images
                     }
 
                     class_name = "VERBA_Document_" + strip_non_letters(self.vectorizer)
@@ -222,6 +226,8 @@ class Embedder(VerbaComponent):
                                 "doc_uuid": chunk.doc_uuid,
                                 "doc_type": chunk.doc_type,
                                 "chunk_id": chunk.chunk_id,
+                                "tags": chunk.tags,  # Add tags to chunks
+                                "public_id": chunk.public_id,  # Add public_id to chunks
                             }
                             class_name = "VERBA_Chunk_" + strip_non_letters(
                                 self.vectorizer
@@ -574,10 +580,15 @@ class Generator(VerbaComponent):
 
     def __init__(self):
         super().__init__()
+        logging.basicConfig(level=logging.INFO)
+        logging.info("Initializing Generator with default settings.")
+
         self.streamable = False
         self.context_window = 4000
-        self.system_message = "You are Verba, The Golden RAGtriever, a chatbot for Retrieval Augmented Generation (RAG). You will receive a user query and context pieces that have a semantic similarity to that specific query. Please answer these user queries only with their provided context. If the provided documentation does not provide enough information, say so. If the user asks questions about you as a chatbot specifially, answer them naturally. If the answer requires code examples encapsulate them with ```programming-language-name ```. Don't do pseudo-code."
+        logging.info("Setting system message for Generator.")
 
+        self.system_message = "You will receive a user query about finding a meme and context related to the meme query. Each context is a meme! It's your job to pick which meam best fits the user's query. You ALWAYS choose a meme from the context. You NEVER say that the provided context isn't enough to answer."
+        logging.info("System message set: %s", self.system_message)
     async def generate(
         self,
         queries: list[str],

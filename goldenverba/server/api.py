@@ -44,6 +44,7 @@ origins = [
     "http://localhost:3000",
     "https://verba-golden-ragtriever.onrender.com",
     "http://localhost:8000",
+    "https://memewizards.com"
 ]
 
 # Add middleware for handling Cross Origin Resource Sharing (CORS)
@@ -166,6 +167,11 @@ async def retrieve_config():
 
 ### WEBSOCKETS
 
+'''This function is used to handle WebSocket connections to the /ws/generate_stream URL of the application.
+The @app.websocket("/ws/generate_stream") decorator is used to specify that this function should handle WebSocket connections to the specified URL.
+The function handles incoming messages from the client, generates a response, and sends it back to the client.
+'''
+
 @app.websocket("/ws/generate_stream")
 async def websocket_generate_stream(websocket: WebSocket):
     await websocket.accept()
@@ -182,6 +188,8 @@ async def websocket_generate_stream(websocket: WebSocket):
                 full_text += chunk["message"]
                 if chunk["finish_reason"] == "stop":
                     chunk["full_text"] = full_text
+                # Log the payload before sending it back to the client
+                msg.info(f"Sending chunk to client: {chunk}")
                 await websocket.send_json(chunk)
 
         except WebSocketDisconnect:
@@ -190,14 +198,21 @@ async def websocket_generate_stream(websocket: WebSocket):
 
         except Exception as e:
             msg.fail(f"WebSocket Error: {str(e)}")
-            await websocket.send_json(
-                {"message": e, "finish_reason": "stop", "full_text": str(e)}
-            )
-        msg.good("Succesfully streamed answer")
+            error_response = {"message": str(e), "finish_reason": "stop", "full_text": str(e)}
+            # Log the error payload before sending it back to the client
+            msg.info(f"Sending error response to client: {error_response}")
+            await websocket.send_json(error_response)
+        msg.good("Successfully streamed answer")
 
 ### POST
 
 # Reset Verba
+
+'''This function is used to reset the Verba application.
+The @app.post("/api/reset") decorator is used to specify that this function should handle POST requests to the /api/reset URL of the application.
+The function checks the payload and resets the Verba application accordingly.
+
+'''
 @app.post("/api/reset")
 async def reset_verba(payload: ResetPayload):
     if production:
@@ -225,6 +240,10 @@ async def reset_verba(payload: ResetPayload):
 # Receive query and return chunks and query answer
 @app.post("/api/import")
 async def import_data(payload: ImportPayload):
+    
+    '''This function is used to import data into the application.
+The @app.post("/api/import") decorator is used to specify that this function should handle POST requests to the /api/import URL of the application.
+The function checks the payload, imports the data, and returns a JSON response with the logging information.'''
 
     logging = []
 
@@ -258,6 +277,10 @@ async def import_data(payload: ImportPayload):
             }
         )
 
+'''set_config function is used to update the configuration of the application.
+The @app.post("/api/set_config") decorator is used to specify that this function should handle POST requests to the /api/set_config URL of the application.
+The function checks the payload and updates the configuration accordingly.'''
+
 @app.post("/api/set_config")
 async def update_config(payload: ConfigPayload):
 
@@ -287,7 +310,7 @@ async def query(payload: QueryPayload):
     msg.good(f"Received query: {payload.query}")
     start_time = time.time()  # Start timing
     try:
-        chunks, context = manager.retrieve_chunks([payload.query])
+        chunks, context, chunk_info, first_template_public_id = manager.retrieve_chunks([payload.query])
 
         retrieved_chunks = [
             {
@@ -297,12 +320,14 @@ async def query(payload: QueryPayload):
                 "doc_uuid": chunk.doc_uuid,
                 "doc_type": chunk.doc_type,
                 "score": chunk.score,
+                "public_id": chunk.public_id,
+                "tags": chunk.tags
             }
             for chunk in chunks
         ]
 
         elapsed_time = round(time.time() - start_time, 2)  # Calculate elapsed time
-        msg.good(f"Succesfully processed query: {payload.query} in {elapsed_time}s")
+        msg.good(f"Successfully processed query: {payload.query} in {elapsed_time}s")
 
         if len(chunks) == 0:
             return JSONResponse(
@@ -311,6 +336,8 @@ async def query(payload: QueryPayload):
                     "took": 0,
                     "context": "",
                     "error": "No Chunks Available",
+                    "chunk_info": [],
+                    "first_template_public_id": ""
                 }
             )
 
@@ -320,6 +347,8 @@ async def query(payload: QueryPayload):
                 "chunks": retrieved_chunks,
                 "context": context,
                 "took": elapsed_time,
+                "chunk_info": chunk_info,
+                "first_template_public_id": first_template_public_id
             }
         )
 
@@ -328,10 +357,12 @@ async def query(payload: QueryPayload):
         return JSONResponse(
             status_code=500,
             content={
-                    "chunks": [],
-                    "took": 0,
-                    "context": "",
-                    "error": f"Something went wrong: {str(e)}",
+                "chunks": [],
+                "took": 0,
+                "context": "",
+                "error": f"Something went wrong: {str(e)}",
+                "chunk_info": [],
+                "first_template_public_id": ""
             }
         )
 
@@ -361,6 +392,18 @@ async def get_document(payload: GetDocumentPayload):
 
     try:
         document = manager.retrieve_document(payload.document_id)
+        if document is None:
+            msg.warning(f"No document found with ID: {payload.document_id}")
+            return JSONResponse(
+                content={
+                    "error": "Document not found",
+                    "document": None,
+                }
+            )
+
+        # Log the complete document object
+        msg.info(f"Complete Document Data: {document}")
+
         document_properties = document.get("properties", {})
         document_obj = {
             "class": document.get("class", "No Class"),
@@ -371,6 +414,16 @@ async def get_document(payload: GetDocumentPayload):
             "type": document_properties.get("doc_type", "No type"),
             "text": document_properties.get("text", "No text"),
             "timestamp": document_properties.get("timestamp", ""),
+            "tags": document_properties.get("tags", []),
+            "example_images": document_properties.get("example_images", []),
+            "template_images": document_properties.get("template_images", []),
+            "views": document_properties.get("views", 0),
+            "comments": document_properties.get("comments", 0),
+            "status": document_properties.get("status", ""),
+            "meta": {k: v for k, v in document_properties.items() if k not in [
+                "chunk_count", "doc_link", "doc_name", "doc_type", "text", "timestamp",
+                "tags", "example_images", "template_images", "views", "comments", "status"
+            ]}
         }
 
         msg.good(f"Succesfully retrieved document: {payload.document_id}")
@@ -432,6 +485,13 @@ async def get_all_documents(payload: SearchQueryPayload):
                     "type": document.get("doc_type", "No type"),
                     "text": document.get("text", "No text"),
                     "timestamp": document.get("timestamp", ""),
+	                "tags": document.get("tags", []),
+	                "example_images": document.get("example_images", []),
+	                "template_images": document.get("template_images", []),
+	                "views": document.get("views", 0),
+	                "comments": document.get("comments", 0),
+	                "status": document.get("status", ""),
+	                "meta": {k: v for k, v in document.items() if k not in ["doc_name", "doc_type", "doc_link", "text", "timestamp", "_additional"]}
                 }
             )
 

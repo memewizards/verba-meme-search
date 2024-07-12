@@ -6,6 +6,9 @@ class Chunk:
         doc_type: str = "",
         doc_uuid: str = "",
         chunk_id: str = "",
+        public_id: str = "",  
+        tags: str = "",
+
     ):
         self._text = text
         self._doc_name = doc_name
@@ -15,6 +18,9 @@ class Chunk:
         self._tokens = 0
         self._vector = None
         self._score = 0
+        self._public_id = public_id
+        self._tags = tags
+        self.meta = {}
 
     @property
     def text(self):
@@ -51,6 +57,21 @@ class Chunk:
     @property
     def score(self):
         return self._score
+    
+
+    @property
+    def public_id(self):
+        return self._public_id
+
+    @property
+    def tags(self):
+        return self._tags
+
+    def set_public_id(self, public_id):
+        self._public_id = public_id
+
+    def set_tags(self, tags):
+        self._tags = tags
 
     def set_uuid(self, uuid):
         self._doc_uuid = uuid
@@ -75,6 +96,10 @@ class Chunk:
             "tokens": self.tokens,
             "vector": self.vector,
             "score": self.score,
+            "public_id": self.public_id,
+            "tags": self.tags,
+            "meta": self.meta,
+
         }
 
     @classmethod
@@ -86,6 +111,8 @@ class Chunk:
             doc_type=data.get("doc_type", ""),
             doc_uuid=data.get("doc_uuid", ""),
             chunk_id=data.get("chunk_id", ""),
+            public_id=data.get("public_id", ""),
+            tags=data.get("tags", ""),
         )
         chunk.set_tokens(data.get("tokens", 0))
         chunk.set_vector(data.get("vector", None))
