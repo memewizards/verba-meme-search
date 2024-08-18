@@ -563,11 +563,17 @@ class VerbaManager:
 
         offset = pageSize * (page - 1)
 
+        # Update the properties list to match the actual schema
+        properties = [
+            "doc_name", "doc_type", "doc_link", "text", "timestamp", 
+            "tags", "example_images", "template_images"
+        ]
+
         if doc_type == "":
             query_results = (
                 self.client.query.get(
                     class_name=class_name,
-                    properties = ["doc_name", "doc_type", "doc_link", "text", "timestamp", "tags", "example_images", "template_images", "views", "comments", "type", "status"],
+                    properties=properties
                 )
                 .with_additional(properties=["id"])
                 .with_limit(pageSize)
@@ -586,7 +592,7 @@ class VerbaManager:
             query_results = (
                 self.client.query.get(
                     class_name=class_name,
-                    properties=["doc_name", "doc_type", "doc_link"],
+                    properties=properties
                 )
                 .with_additional(properties=["id"])
                 .with_where(
@@ -609,7 +615,14 @@ class VerbaManager:
                 .do()
             )
 
-        results = query_results["data"]["Get"][class_name]
+        print(f"Query results: {query_results}")
+
+        if 'data' in query_results and 'Get' in query_results['data']:
+            results = query_results["data"]["Get"][class_name]
+        else:
+            print(f"Unexpected query_results structure: {query_results}")
+            results = []
+
         return results
 
     def retrieve_all_document_types(self) -> list:

@@ -444,20 +444,27 @@ async def get_document(payload: GetDocumentPayload):
 
 ## Retrieve and search documents imported to Weaviate
 @app.post("/api/get_all_documents")
+
 async def get_all_documents(payload: SearchQueryPayload):
-    # TODO Standarize Document Creation
     msg.info("Get all documents request received")
     start_time = time.time()  # Start timing
 
     try:
+        # Check Weaviate connection
+        if not manager.client.is_ready():
+            msg.fail("Weaviate connection is not ready")
+            raise Exception("Weaviate connection is not ready")
+
         if payload.query == "":
             documents = manager.retrieve_all_documents(
                 payload.doc_type, payload.page, payload.pageSize
             )
+            msg.info(f"Retrieved documents: {documents}")
         else:
             documents = manager.search_documents(
                 payload.query, payload.doc_type, payload.page, payload.pageSize
             )
+            msg.info(f"Searched documents: {documents}")
 
         if not documents:
             return JSONResponse(
@@ -472,9 +479,7 @@ async def get_all_documents(payload: SearchQueryPayload):
 
         documents_obj = []
         for document in documents:
-
             _additional = document["_additional"]
-
             documents_obj.append(
                 {
                     "class": "No Class",
@@ -485,19 +490,19 @@ async def get_all_documents(payload: SearchQueryPayload):
                     "type": document.get("doc_type", "No type"),
                     "text": document.get("text", "No text"),
                     "timestamp": document.get("timestamp", ""),
-	                "tags": document.get("tags", []),
-	                "example_images": document.get("example_images", []),
-	                "template_images": document.get("template_images", []),
-	                "views": document.get("views", 0),
-	                "comments": document.get("comments", 0),
-	                "status": document.get("status", ""),
-	                "meta": {k: v for k, v in document.items() if k not in ["doc_name", "doc_type", "doc_link", "text", "timestamp", "_additional"]}
+                    "tags": document.get("tags", []),
+                    "example_images": document.get("example_images", []),
+                    "template_images": document.get("template_images", []),
+                    "views": 0,  # Default value since it's not in the schema
+                    "comments": 0,  # Default value since it's not in the schema
+                    "status": "",  # Default value since it's not in the schema
+                    "meta": {k: v for k, v in document.items() if k not in ["doc_name", "doc_type", "doc_link", "text", "timestamp", "_additional"]}
                 }
             )
 
         elapsed_time = round(time.time() - start_time, 2)  # Calculate elapsed time
         msg.good(
-            f"Succesfully retrieved document: {len(documents)} documents in {elapsed_time}s"
+            f"Successfully retrieved document: {len(documents)} documents in {elapsed_time}s"
         )
 
         doc_types = manager.retrieve_all_document_types()
@@ -513,6 +518,8 @@ async def get_all_documents(payload: SearchQueryPayload):
         )
     except Exception as e:
         msg.fail(f"All Document retrieval failed: {str(e)}")
+        import traceback
+        msg.fail(f"Traceback: {traceback.format_exc()}")
         return JSONResponse(
             content={
                 "documents": [],
@@ -520,7 +527,8 @@ async def get_all_documents(payload: SearchQueryPayload):
                 "current_embedder": manager.embedder_manager.selected_embedder,
                 "error": f"All Document retrieval failed: {str(e)}",
                 "took": 0,
-            }
+            },
+            status_code=500
         )
 
 # Delete specific document based on UUID
