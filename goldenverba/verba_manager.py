@@ -33,9 +33,20 @@ from goldenverba.components.managers import (
 load_dotenv()
 
 class VerbaManager:
-    """Manages all Verba Components."""
+    """
+    Manages all Verba Components and provides methods for system operations.
+
+    This class acts as a facade for the Verba system, coordinating various
+    components (readers, chunkers, embedders, retrievers, generators) and
+    providing methods for data processing, retrieval, and generation tasks.
+    
+    """
 
     def __init__(self) -> None:
+        """
+        Initialize the VerbaManager with all necessary components and settings.
+        Sets up client, verifies libraries and environment variables, and initializes schemas.
+        """
         self.reader_manager = ReaderManager()
         self.chunker_manager = ChunkerManager()
         self.embedder_manager = EmbeddingManager()
@@ -61,6 +72,18 @@ class VerbaManager:
     def import_data(
         self, fileData: list[FileData], textValues: list[str], logging: list[dict]
     ) -> list[Document]:
+        
+        """
+        Import and process data from files and text inputs.
+
+        Args:
+            fileData (list[FileData]): List of file data to be processed.
+            textValues (list[str]): List of text values to be processed.
+            logging (list[dict]): List to store logging information.
+
+        Returns:
+            tuple: A tuple containing the list of processed documents and updated logging information.
+        """
         
         loaded_documents, logging = self.reader_manager.load(
             fileData, textValues, logging
@@ -88,13 +111,20 @@ class VerbaManager:
         return modified_documents, logging
 
     def set_meme_chunker(self):
+        """Set the chunker to MemeChunker."""
         self.chunker_manager.set_chunker("MemeChunker")
 
-
     def reader_set_reader(self, reader: str) -> bool:
+        """Set the reader to CustomMemeReader."""
         self.reader_manager.set_reader("CustomMemeReader")
 
-    def reader_get_readers(self) -> dict[str, Reader]:
+    def reader_get_readers(self) -> dict[str, Reader]:       
+        """
+        Get all available readers.
+
+        Returns:
+            dict[str, Reader]: A dictionary of available readers.
+        """
         return self.reader_manager.get_readers()
 
     def chunker_set_chunker(self, chunker: str) -> bool:
@@ -123,7 +153,10 @@ class VerbaManager:
 
     def setup_client(self):
         """
-        @returns Optional[Client] - The Weaviate Client.
+        Set up the Weaviate client based on environment variables.
+
+        Returns:
+            Optional[Client]: The Weaviate Client.
         """
         msg.info("Setting up client")
 
@@ -413,7 +446,10 @@ class VerbaManager:
 
     def get_schemas(self) -> dict:
         """
-        @returns dict - A dictionary with the schema names and their object count.
+        Retrieve schema information from Weaviate.
+
+        Returns:
+            dict: A dictionary with the schema names and their object count.
         """
         schema_info = self.client.schema.get()
 
@@ -438,9 +474,14 @@ class VerbaManager:
         return schemas
 
     def get_suggestions(self, query: str) -> list[str]:
-        """Retrieve suggestions based on user query
-        @parameter query : str - User query
-        @returns list[str] - List of possible autocomplete suggestions.
+        """
+        Retrieve suggestions based on user query.
+
+        Args:
+            query (str): User query.
+
+        Returns:
+            list[str]: List of possible autocomplete suggestions.
         """
         query_results = (
             self.client.query.get(
@@ -465,8 +506,11 @@ class VerbaManager:
         return suggestions
 
     def set_suggestions(self, query: str):
-        """Adds suggestions to the suggestion class
-        @parameter query : str - Query to save in suggestions.
+        """
+        Add suggestions to the suggestion class.
+
+        Args:
+            query (str): Query to save in suggestions.
         """
         # Don't set new suggestions when in production
         production_key = os.environ.get("VERBA_PRODUCTION", "")
@@ -508,6 +552,15 @@ class VerbaManager:
         msg.info("Added query to suggestions")
 
     def retrieve_chunks(self, queries: list[str]) -> list[Chunk]:
+        """
+        Retrieve relevant chunks based on queries.
+
+        Args:
+            queries (list[str]): List of query strings.
+
+        Returns:
+            tuple: A tuple containing the list of retrieved chunks, context, chunk info, and first template public ID.
+        """
         chunks, context = self.retriever_manager.retrieve(
             queries,
             self.client,
@@ -552,8 +605,16 @@ class VerbaManager:
         return processed_chunks, context, chunk_info, first_template_public_id
 
     def retrieve_all_documents(self, doc_type: str, page: int, pageSize: int) -> list:
-        """Return all documents from Weaviate
-        @returns list - Document list.
+        """
+        Retrieve all documents from Weaviate.
+
+        Args:
+            doc_type (str): Type of document to retrieve.
+            page (int): Page number for pagination.
+            pageSize (int): Number of items per page.
+
+        Returns:
+            list: List of retrieved documents.
         """
         class_name = "VERBA_Document_" + schema_manager.strip_non_letters(
             self.embedder_manager.embedders[
@@ -650,9 +711,14 @@ class VerbaManager:
         return results
 
     def retrieve_document(self, doc_id: str) -> dict:
-        """Return a document by it's ID (UUID format) from Weaviate
-        @parameter doc_id : str - Document ID
-        @returns dict - Document dict.
+        """
+        Retrieve a document by its ID from Weaviate.
+
+        Args:
+            doc_id (str): Document ID (UUID format).
+
+        Returns:
+            dict: Retrieved document as a dictionary.
         """
         class_name = "VERBA_Document_" + schema_manager.strip_non_letters(
             self.embedder_manager.embedders[
@@ -669,6 +735,18 @@ class VerbaManager:
     async def generate_answer(
         self, queries: list[str], contexts: list[str], conversation: dict
     ):
+        
+        """
+        Generate an answer based on queries, contexts, and conversation history.
+
+        Args:
+            queries (list[str]): List of query strings.
+            contexts (list[str]): List of context strings.
+            conversation (dict): Conversation history.
+
+        Returns:
+            dict: Generated answer with metadata.
+        """
         semantic_result = None
         if self.enable_caching:
             semantic_query = self.embedder_manager.embedders[
@@ -704,6 +782,17 @@ class VerbaManager:
         self, queries: list[str], contexts: list[str], conversation: dict
     ):
 
+        """
+        Generate a streaming answer based on queries, contexts, and conversation history.
+
+        Args:
+            queries (list[str]): List of query strings.
+            contexts (list[str]): List of context strings.
+            conversation (dict): Conversation history.
+
+        Yields:
+            dict: Generated answer chunks with metadata.
+        """
         semantic_result = None
         chunks, context, chunk_info, first_template_public_id = self.retrieve_chunks(queries)  # Updated to unpack 4 values
 
@@ -752,6 +841,12 @@ class VerbaManager:
                 ].add_to_semantic_cache(self.client, semantic_query, full_text)
 
     def debug_print_document(self, doc_name):
+        """
+        Print debug information for a document.
+
+        Args:
+            doc_name (str): Name of the document to debug.
+        """
         class_name = "VERBA_Document_" + schema_manager.strip_non_letters(
             self.embedder_manager.embedders[
                 self.embedder_manager.selected_embedder
@@ -869,11 +964,26 @@ class VerbaManager:
         return False
 
     def check_verba_component(self, component: VerbaComponent) -> tuple[bool, str]:
+        """
+        Check if a Verba component is available.
+
+        Args:
+            component (VerbaComponent): Component to check.
+
+        Returns:
+            tuple[bool, str]: Availability status and message.
+        """
         return component.check_available(
             self.environment_variables, self.installed_libraries
         )
 
     def delete_document_by_id(self, doc_id: str) -> None:
+        """
+        Delete a document from Weaviate by its ID.
+
+        Args:
+            doc_id (str): ID of the document to delete.
+        """
         self.embedder_manager.embedders[
             self.embedder_manager.selected_embedder
         ].remove_document_by_id(self.client, doc_id)
