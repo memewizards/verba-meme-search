@@ -1,5 +1,6 @@
 import os
 import ssl
+import logging
 
 import weaviate
 from dotenv import load_dotenv, find_dotenv
@@ -8,6 +9,8 @@ from weaviate.embedded import EmbeddedOptions
 
 import goldenverba.components.schema.schema_generation as schema_manager
 from goldenverba.components.chunking.MemeChunker import MemeChunker
+
+from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator, VideoEditingInstructions
 
 
 from goldenverba.components.chunk import Chunk
@@ -778,23 +781,9 @@ class VerbaManager:
                 self.set_suggestions(" ".join(queries))
             return full_text
 
-    async def generate_stream_answer(
-        self, queries: list[str], contexts: list[str], conversation: dict
-    ):
-
-        """
-        Generate a streaming answer based on queries, contexts, and conversation history.
-
-        Args:
-            queries (list[str]): List of query strings.
-            contexts (list[str]): List of context strings.
-            conversation (dict): Conversation history.
-
-        Yields:
-            dict: Generated answer chunks with metadata.
-        """
+    async def generate_stream_answer(self, queries: list[str], contexts: list[str], conversation: dict):
         semantic_result = None
-        chunks, context, chunk_info, first_template_public_id = self.retrieve_chunks(queries)  # Updated to unpack 4 values
+        chunks, context, chunk_info, first_template_public_id = self.retrieve_chunks(queries)
 
         print(f"Retrieved chunks with public_ids: {[chunk['public_id'] for chunk in chunk_info]} and tags: {[chunk['tags'] for chunk in chunk_info]}")
         print(f"First template public_id: {first_template_public_id}")
@@ -803,10 +792,7 @@ class VerbaManager:
             semantic_query = self.embedder_manager.embedders[
                 self.embedder_manager.selected_embedder
             ].conversation_to_query(queries, conversation)
-            (
-                semantic_result,
-                distance,
-            ) = self.embedder_manager.embedders[
+            semantic_result, distance = self.embedder_manager.embedders[
                 self.embedder_manager.selected_embedder
             ].retrieve_semantic_cache(self.client, semantic_query)
 
@@ -821,25 +807,55 @@ class VerbaManager:
                 "tags": [chunk["tags"] for chunk in chunk_info if chunk["tags"]],
                 "template_public_id": first_template_public_id
             }
-
         else:
             full_text = ""
-            async for result in self.generator_manager.generators[
-                self.generator_manager.selected_generator
-            ].generate_stream(queries, [context], conversation):
-                full_text += result["message"]
-                result["images"] = [{"public_id": chunk["public_id"]} for chunk in chunk_info if chunk["public_id"]]
-                result["public_id"] = [chunk["public_id"] for chunk in chunk_info if chunk["public_id"]]
-                result["tags"] = [chunk["tags"] for chunk in chunk_info if chunk["tags"]]
-                result["template_public_id"] = first_template_public_id
-                print(f"Yielding chunk with public_ids: {result['public_id']}, tags: {result['tags']}, and template_public_id: {result['template_public_id']}")
-                yield result
+            generator = self.generator_manager.generators[self.generator_manager.selected_generator]
+            
+            if isinstance(generator, VideoEditingGenerator):
+                # Handle VideoEditingGenerator separately
+                try:
+                    result = await generator.generate(queries, [context], conversation)
+                    yield {
+                        "message": result,
+                        "finish_reason": "stop",
+                        "images": [{"public_id": chunk["public_id"]} for chunk in chunk_info if chunk["public_id"]],
+                        "public_id": [chunk["public_id"] for chunk in chunk_info if chunk["public_id"]],
+                        "tags": [chunk["tags"] for chunk in chunk_info if chunk["tags"]],
+                        "template_public_id": first_template_public_id
+                    }
+                except Exception as e:
+                    yield {
+                        "message": f"Error in VideoEditingGenerator: {str(e)}",
+                        "finish_reason": "error",
+                        "error": str(e)
+                    }
+            else:
+                # Handle other generators
+                try:
+                    async for result in generator.generate_stream(queries, [context], conversation):
+                        full_text += result["message"]
+                        result.update({
+                            "images": [{"public_id": chunk["public_id"]} for chunk in chunk_info if chunk["public_id"]],
+                            "public_id": [chunk["public_id"] for chunk in chunk_info if chunk["public_id"]],
+                            "tags": [chunk["tags"] for chunk in chunk_info if chunk["tags"]],
+                            "template_public_id": first_template_public_id
+                        })
+                        print(f"Yielding chunk with public_ids: {result['public_id']}, tags: {result['tags']}, and template_public_id: {result['template_public_id']}")
+                        yield result
+                except Exception as e:
+                    yield {
+                        "message": f"Error in generator: {str(e)}",
+                        "finish_reason": "error",
+                        "error": str(e)
+                    }
+
             if self.enable_caching:
                 self.set_suggestions(" ".join(queries))
                 self.embedder_manager.embedders[
                     self.embedder_manager.selected_embedder
                 ].add_to_semantic_cache(self.client, semantic_query, full_text)
-
+                self.set_suggestions(" ".join(queries))
+                
     def debug_print_document(self, doc_name):
         """
         Print debug information for a document.
