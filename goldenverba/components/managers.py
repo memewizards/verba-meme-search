@@ -17,7 +17,9 @@ from goldenverba.components.reader.GitReader import GitHubReader
 from goldenverba.components.reader.GitLabReader import GitLabReader
 from goldenverba.components.reader.UnstructuredAPI import UnstructuredReader
 from goldenverba.components.reader.CustomMemeReader import CustomMemeReader
+from goldenverba.components.reader.VideoReader import VideoReader
 from goldenverba.components.chunking.MemeChunker import MemeChunker
+from goldenverba.components.chunking.VideoChunker import VideoChunker
 from goldenverba.components.chunking.TokenChunker import TokenChunker
 
 from goldenverba.components.embedding.ADAEmbedder import ADAEmbedder
@@ -29,12 +31,18 @@ from goldenverba.components.embedding.AllMPNetEmbedder import AllMPNetEmbedder
 from goldenverba.components.embedding.MixedbreadEmbedder import MixedbreadEmbedder
 
 from goldenverba.components.retriever.WindowRetriever import WindowRetriever
-
 from goldenverba.components.generation.GeminiGenerator import GeminiGenerator
 from goldenverba.components.generation.CohereGenerator import CohereGenerator
 from goldenverba.components.generation.GPT3Generator import GPT3Generator
 from goldenverba.components.generation.GPT4Generator import GPT4Generator
+
 from goldenverba.components.generation.OllamaGenerator import OllamaGenerator
+from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator
+from goldenverba.components.generation.VideoFrameGenerator import VideoFrameGenerator
+
+# #Instructions? 
+# from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator, VideoEditingInstructions
+
 
 import time
 
@@ -53,6 +61,7 @@ class ReaderManager:
             "GitLabReader": GitLabReader(),
             "UnstructuredAPI": UnstructuredReader(),
             "CustomMemeReader": CustomMemeReader(),
+            "VideoReader": VideoReader(),
         }
         self.selected_reader: str = "CustomMemeReader"
         print(f"ReaderManager initialized. Available readers: {list(self.readers.keys())}")
@@ -112,6 +121,7 @@ class ChunkerManager:
         self.chunker: dict[str, Chunker] = {
             "TokenChunker": TokenChunker(),
             "MemeChunker": MemeChunker(),
+            "VideoChunker": VideoChunker(),
         }
         self.selected_chunker: str = "TokenChunker"
 
@@ -275,7 +285,7 @@ class RetrieverManager:
     def get_retrievers(self) -> dict[str, Retriever]:
         return self.retrievers
 
-
+#wHAT THE fuck is this desIgn PaTtErN
 class GeneratorManager:
     def __init__(self):
         self.generators: dict[str, Generator] = {
@@ -284,8 +294,10 @@ class GeneratorManager:
             "GPT3": GPT3Generator(),
             "Ollama": OllamaGenerator(),
             "Command R+": CohereGenerator(),
+            "VideoEditing": VideoEditingGenerator(),
+            "VideoFrame": VideoFrameGenerator(),
         }
-        self.selected_generator: str = "GPT3"
+        self.selected_generator: str = "VideoEditing"
 
     async def generate_stream(
         self,

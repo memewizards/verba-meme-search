@@ -59,7 +59,7 @@ class VerbaManager:
         self.installed_libraries = {}
         self.weaviate_type = ""
         self.client = self.setup_client()
-        self.enable_caching = True
+        self.enable_caching = False
 
         self.verify_installed_libraries()
         self.verify_variables()
@@ -805,7 +805,9 @@ class VerbaManager:
                 "images": [{"public_id": chunk["public_id"]} for chunk in chunk_info if chunk["public_id"]],
                 "public_id": [chunk["public_id"] for chunk in chunk_info if chunk["public_id"]],
                 "tags": [chunk["tags"] for chunk in chunk_info if chunk["tags"]],
-                "template_public_id": first_template_public_id
+                "template_public_id": first_template_public_id,
+                "exposed_frames": [chunk.meta.get('frame_number') for chunk in chunks if chunk.meta.get('frame_number') is not None]
+
             }
         else:
             full_text = ""
@@ -850,7 +852,6 @@ class VerbaManager:
                     }
 
             if self.enable_caching:
-                self.set_suggestions(" ".join(queries))
                 self.embedder_manager.embedders[
                     self.embedder_manager.selected_embedder
                 ].add_to_semantic_cache(self.client, semantic_query, full_text)

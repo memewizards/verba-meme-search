@@ -3,45 +3,37 @@ import json
 from datetime import datetime
 from wasabi import msg
 
-
-from datetime import datetime
-from wasabi import msg
 from goldenverba.components.document import Document
 from goldenverba.components.interfaces import Reader
 from goldenverba.components.types import FileData
 
-class CustomMemeReader(Reader):
+class VideoReader(Reader):
     def __init__(self):
         super().__init__()
-        self.name = "CustomMemeReader"
-        self.description = "Imports custom meme JSON files."
-
-    print("THE CUSTOM MEME READER IS BEING CREATED")
+        self.name = "VideoReader"
+        self.description = "Imports video frame data from JSON files."
 
     def load(self, fileData: list[FileData], textValues: list[str], logging: list[dict]) -> tuple[list[Document], list[dict]]:
         documents = []
-        msg.info(f"CustomMemeReader: Processing {len(fileData)} files")
+        msg.info(f"VideoReader: Processing {len(fileData)} files")
 
         for file in fileData:
             if file.extension == "json":
                 try:
                     content = self.decode_content(file.content)
-                    meme_data = json.loads(content)
+                    video_data = json.loads(content)
 
+                    # Create a single document for the entire video
                     document = Document(
-                        name=meme_data['meme_id'],
-                        text=meme_data['about'],
-                        type="type is 'meme'",
+                        name=video_data[0]['original_filename'],
+                        text=json.dumps(video_data),  # Store the entire JSON as text
+                        type="video",
                         timestamp=str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
                         reader=self.name,
-                        tags=meme_data.get('tags', []),
-                        example_images=meme_data.get('example_images', []),
-                        template_images=meme_data.get('template_images', []),
                         metadata={
-                            'views': meme_data.get('views', 0),
-                            'comments': meme_data.get('comments', 0),
-                            'type': meme_data.get('type', []),
-                            'status': meme_data.get('status', '')
+                            'total_frames': video_data[0]['total_frames'],
+                            'video_length': video_data[0]['video_length'],
+                            'fps': video_data[0]['fps']
                         }
                     )
                     documents.append(document)

@@ -1,4 +1,5 @@
 import os
+import json
 from dotenv import load_dotenv
 from goldenverba.components.interfaces import Generator
 from pydantic import BaseModel, Field, validator
@@ -7,11 +8,12 @@ import logging
 
 load_dotenv()
 
+
 class Clip(BaseModel):
     length: float = Field(ge=0.2, description="Length of the clip in seconds")
     track: int = Field(ge=1, description="Track number for the clip")
     start: float = Field(ge=0.0, description="Start position of the clip in seconds")
-    clip_path: str = Field(description="Path to the clip file")
+    clipPath: str = Field(description="Path to the clip file")  # Changed from clip_path to clipPath
 
     @validator('length')
     def length_must_be_positive(cls, v):
@@ -27,7 +29,6 @@ class Clip(BaseModel):
 
 class VideoEditingInstructions(BaseModel):
     clips: List[Clip]
-    project_name: str = Field(description="Name of the video editing project")
 
 class VideoEditingGenerator(Generator):
     def __init__(self):
@@ -41,7 +42,6 @@ class VideoEditingGenerator(Generator):
         self.context_window = 10000
 
     async def generate_stream(self, queries: list[str], context: list[str], conversation: dict = None):
-        # For video editing, we'll use the non-streaming generate method
         result = await self.generate(queries, context, conversation)
         yield {
             "message": result,
@@ -51,6 +51,7 @@ class VideoEditingGenerator(Generator):
     async def generate(self, queries: list[str], context: list[str], conversation: dict = None) -> str:
         try:
             import openai
+            logging.info(f"VideoEditingGenerator.generate called with queries: {queries}")
 
             openai.api_key = os.getenv("OPENAI_API_KEY")
             base_url = os.environ.get("OPENAI_BASE_URL", "")
@@ -66,7 +67,9 @@ class VideoEditingGenerator(Generator):
 
             system_prompt = """
             You are an AI video editing assistant. You will be provided with a description of desired video edits.
-
+            Your goal is to respond with structured video editing instructions, including a list of clips to be added
+            to the timeline. For each clip, provide the length, track number, start position, and clipPath.
+            The clipPath should always start with '/home/vboxuser/Downloads/'.
             """
 
             messages = [
@@ -95,13 +98,17 @@ class VideoEditingGenerator(Generator):
 
             function_response = completion.choices[0].message.function_call.arguments
             parsed_message = VideoEditingInstructions.model_validate_json(function_response)
-            logging.info(f"Parsed Video Editing Instructions: {parsed_message}")
+            
+            # Extract only the clips array and format it correctly
+            clips_dict = {"clips": [clip.model_dump() for clip in parsed_message.clips]}
+            
+            logging.info(f"Formatted Video Editing Instructions: {clips_dict}")
 
-            return parsed_message.model_dump_json()
+            return json.dumps(clips_dict)
 
         except Exception as e:
             logging.error(f"Error in VideoEditingGenerator: {str(e)}")
-            return f"Error generating video editing instructions: {str(e)}"
+            return json.dumps({"error": f"Error generating video editing instructions: {str(e)}"})
 
     def prepare_messages(self, queries: list[str], context: list[str], conversation: dict[str, str]) -> dict[str, str]:
         # This method is not used in this generator, but we'll keep it for consistency
