@@ -10,7 +10,7 @@ from weaviate.embedded import EmbeddedOptions
 import goldenverba.components.schema.schema_generation as schema_manager
 from goldenverba.components.chunking.MemeChunker import MemeChunker
 
-from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator, VideoEditingInstructions
+from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator
 
 
 from goldenverba.components.chunk import Chunk

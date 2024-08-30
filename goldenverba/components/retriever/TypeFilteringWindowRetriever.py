@@ -5,22 +5,21 @@ from goldenverba.components.chunk import Chunk
 from goldenverba.components.interfaces import Embedder, Retriever
 
 
-class WindowRetriever(Retriever):
+class TypeFilteringWindowRetriever(Retriever):
     """
-    WindowRetriever that retrieves chunks and their surrounding context depending on the window size.
+    TypeFilteringWindowRetriever that retrieves chunks and their surrounding context depending on the window size.
     """
 
     def __init__(self):
         super().__init__()
         self.description = "Retrieve relevant chunks and their surrounding context using Semantic and Keyword Search (Hybrid)"
-        self.name = "WindowRetriever"
+        self.name = "TypeFilteringWindowRetriever"
 
     def retrieve(
         self,
         queries: list[str],
         client: Client,
         embedder: Embedder,
-        doc_type: str = None  # Add this parameter
     ) -> list[Chunk]:
         """Ingest data into Weaviate
         @parameter: queries : list[str] - List of queries
@@ -47,14 +46,6 @@ class WindowRetriever(Retriever):
                 .with_additional(properties=["score"])
                 .with_autocut(1)
             )
-
-            # Add document type filter if specified
-            if doc_type:
-                query_results = query_results.with_where({
-                    "path": ["doc_type"],
-                    "operator": "Equal",
-                    "valueString": doc_type
-                })
 
             if needs_vectorization:
                 vector = embedder.vectorize_query(query)

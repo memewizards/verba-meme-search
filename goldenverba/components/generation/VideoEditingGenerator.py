@@ -2,33 +2,48 @@ import os
 import json
 from dotenv import load_dotenv
 from goldenverba.components.interfaces import Generator
-from pydantic import BaseModel, Field, validator
-from typing import List
+from pydantic import BaseModel, Field
+from typing import List, Optional, Union, Literal
 import logging
 
 load_dotenv()
 
+# Temporarily set clip_path to the Downloads folder. Later this will be dynamically set based on the user's project.
+path_to_clip = "/home/vboxuser/Downloads/"
 
 class Clip(BaseModel):
     length: float = Field(ge=0.2, description="Length of the clip in seconds")
     track: int = Field(ge=1, description="Track number for the clip")
     start: float = Field(ge=0.0, description="Start position of the clip in seconds")
-    clipPath: str = Field(description="Path to the clip file")  # Changed from clip_path to clipPath
+    clipPath: str = Field(description="Path to the clip file")
+    speed: float = Field(default=1.0, ge=0.1, le=10.0, description="Playback speed of the clip")
 
-    @validator('length')
-    def length_must_be_positive(cls, v):
-        return max(v, 0.0)
+class InsertClipAction(BaseModel):
+    action: Literal["insert_clip"]
+    clip: Clip
 
-    @validator('track')
-    def track_must_be_positive(cls, v):
-        return max(v, 1)
+class CutClipAction(BaseModel):
+    action: Literal["cut_clip"]
+    clipPath: str = Field(description="Path to the clip to be cut")
+    cutTime: float = Field(ge=0.0, description="Time at which to cut the clip")
 
-    @validator('start')
-    def start_must_be_non_negative(cls, v):
-        return max(v, 0.0)
+class RemoveClipAction(BaseModel):
+    action: Literal["remove_clip"]
+    clipId: int = Field(description="ID of the clip to be removed")
+
+class SearchAudioContentAction(BaseModel):
+    action: Literal["search_audio_content"]
+    query: str = Field(description="Search query for finding specific audio content")
+    clipPath: Optional[str] = Field(default=None, description="Path to the specific clip to search within, if applicable")
+
+class SearchClipAction(BaseModel):
+    action: Literal["search_clip"]
+    query: str = Field(description="Search query for finding clips in the project bin")
+
+EditingAction = InsertClipAction | CutClipAction | RemoveClipAction | SearchAudioContentAction | SearchClipAction
 
 class VideoEditingInstructions(BaseModel):
-    clips: List[Clip]
+    actions: List[EditingAction]
 
 class VideoEditingGenerator(Generator):
     def __init__(self):
@@ -65,11 +80,13 @@ class VideoEditingGenerator(Generator):
             if "OPENAI_API_VERSION" in os.environ:
                 openai.api_version = os.getenv("OPENAI_API_VERSION")
 
-            system_prompt = """
+            system_prompt = f"""
             You are an AI video editing assistant. You will be provided with a description of desired video edits.
-            Your goal is to respond with structured video editing instructions, including a list of clips to be added
-            to the timeline. For each clip, provide the length, track number, start position, and clipPath.
-            The clipPath should always start with '/home/vboxuser/Downloads/'.
+            Your goal is to respond with structured video editing instructions, including a list of editing actions
+            to be performed on the timeline. Actions can include adding clips, splitting clips, deleting clips,
+            overlaying clips, replacing audio, and searching for clips.
+
+            The clipPath should always start with "{path_to_clip}".
             """
 
             messages = [
@@ -99,17 +116,13 @@ class VideoEditingGenerator(Generator):
             function_response = completion.choices[0].message.function_call.arguments
             parsed_message = VideoEditingInstructions.model_validate_json(function_response)
             
-            # Extract only the clips array and format it correctly
-            clips_dict = {"clips": [clip.model_dump() for clip in parsed_message.clips]}
+            # Extract only the actions array and format it correctly
+            actions_dict = {"actions": [action.model_dump() for action in parsed_message.actions]}
             
-            logging.info(f"Formatted Video Editing Instructions: {clips_dict}")
+            logging.info(f"Formatted Video Editing Instructions: {actions_dict}")
 
-            return json.dumps(clips_dict)
+            return json.dumps(actions_dict)
 
         except Exception as e:
             logging.error(f"Error in VideoEditingGenerator: {str(e)}")
             return json.dumps({"error": f"Error generating video editing instructions: {str(e)}"})
-
-    def prepare_messages(self, queries: list[str], context: list[str], conversation: dict[str, str]) -> dict[str, str]:
-        # This method is not used in this generator, but we'll keep it for consistency
-        pass

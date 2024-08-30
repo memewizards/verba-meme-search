@@ -31,6 +31,8 @@ from goldenverba.components.embedding.AllMPNetEmbedder import AllMPNetEmbedder
 from goldenverba.components.embedding.MixedbreadEmbedder import MixedbreadEmbedder
 
 from goldenverba.components.retriever.WindowRetriever import WindowRetriever
+from goldenverba.components.retriever.TypeFilteringWindowRetriever import TypeFilteringWindowRetriever
+
 from goldenverba.components.generation.GeminiGenerator import GeminiGenerator
 from goldenverba.components.generation.CohereGenerator import CohereGenerator
 from goldenverba.components.generation.GPT3Generator import GPT3Generator
@@ -39,6 +41,7 @@ from goldenverba.components.generation.GPT4Generator import GPT4Generator
 from goldenverba.components.generation.OllamaGenerator import OllamaGenerator
 from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator
 from goldenverba.components.generation.VideoFrameGenerator import VideoFrameGenerator
+from goldenverba.components.generation.PlanningGenerator import PlanningGenerator
 
 # #Instructions? 
 # from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator, VideoEditingInstructions
@@ -249,6 +252,7 @@ class RetrieverManager:
     def __init__(self):
         self.retrievers: dict[str, Retriever] = {
             "WindowRetriever": WindowRetriever(),
+            "TypeFilteringWindowRetriever": TypeFilteringWindowRetriever(),
         }
         self.selected_retriever: str = "WindowRetriever"
 
@@ -285,7 +289,6 @@ class RetrieverManager:
     def get_retrievers(self) -> dict[str, Retriever]:
         return self.retrievers
 
-#wHAT THE fuck is this desIgn PaTtErN
 class GeneratorManager:
     def __init__(self):
         self.generators: dict[str, Generator] = {
@@ -296,6 +299,7 @@ class GeneratorManager:
             "Command R+": CohereGenerator(),
             "VideoEditing": VideoEditingGenerator(),
             "VideoFrame": VideoFrameGenerator(),
+            "Planning": PlanningGenerator(),
         }
         self.selected_generator: str = "VideoEditing"
 
