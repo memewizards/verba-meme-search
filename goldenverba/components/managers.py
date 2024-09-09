@@ -18,9 +18,11 @@ from goldenverba.components.reader.GitLabReader import GitLabReader
 from goldenverba.components.reader.UnstructuredAPI import UnstructuredReader
 from goldenverba.components.reader.CustomMemeReader import CustomMemeReader
 from goldenverba.components.reader.VideoReader import VideoReader
+from goldenverba.components.reader.TranscriptionReader import TranscriptionReader
 from goldenverba.components.chunking.MemeChunker import MemeChunker
 from goldenverba.components.chunking.VideoChunker import VideoChunker
 from goldenverba.components.chunking.TokenChunker import TokenChunker
+from goldenverba.components.chunking.TranscriptionChunker import TranscriptionChunker
 
 from goldenverba.components.embedding.ADAEmbedder import ADAEmbedder
 from goldenverba.components.embedding.CohereEmbedder import CohereEmbedder
@@ -42,6 +44,7 @@ from goldenverba.components.generation.OllamaGenerator import OllamaGenerator
 from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator
 from goldenverba.components.generation.VideoFrameGenerator import VideoFrameGenerator
 from goldenverba.components.generation.PlanningGenerator import PlanningGenerator
+from goldenverba.components.generation.TranscriptionSearchGenerator import TranscriptionSearchGenerator
 
 # #Instructions? 
 # from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator, VideoEditingInstructions
@@ -64,6 +67,7 @@ class ReaderManager:
             "GitLabReader": GitLabReader(),
             "UnstructuredAPI": UnstructuredReader(),
             "CustomMemeReader": CustomMemeReader(),
+            "TranscriptionReader": TranscriptionReader(),
             "VideoReader": VideoReader(),
         }
         self.selected_reader: str = "CustomMemeReader"
@@ -125,6 +129,7 @@ class ChunkerManager:
             "TokenChunker": TokenChunker(),
             "MemeChunker": MemeChunker(),
             "VideoChunker": VideoChunker(),
+            "TranscriptionChunker": TranscriptionChunker(),
         }
         self.selected_chunker: str = "TokenChunker"
 
@@ -300,6 +305,7 @@ class GeneratorManager:
             "VideoEditing": VideoEditingGenerator(),
             "VideoFrame": VideoFrameGenerator(),
             "Planning": PlanningGenerator(),
+            "TranscriptionSearch": TranscriptionSearchGenerator(),
         }
         self.selected_generator: str = "VideoEditing"
 

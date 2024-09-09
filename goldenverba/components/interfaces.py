@@ -203,6 +203,7 @@ class Embedder(VerbaComponent):
                         "tags": document.tags,  # Add tags
                         "template_images": document.template_images,  # Add template_images
                         "example_images": document.example_images,  # Add example_images
+                        "chunk_info": document.metadata.get('chunk_info', [])  # Add this line
                     }
 
                     class_name = "VERBA_Document_" + strip_non_letters(self.vectorizer)
@@ -228,6 +229,7 @@ class Embedder(VerbaComponent):
                                 "chunk_id": chunk.chunk_id,
                                 "tags": chunk.tags,  # Add tags to chunks
                                 "public_id": chunk.public_id,  # Add public_id to chunks
+                                "metadata": chunk.meta  # Store all other metadata here
                             }
                             class_name = "VERBA_Chunk_" + strip_non_letters(
                                 self.vectorizer

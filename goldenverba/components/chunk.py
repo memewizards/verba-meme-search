@@ -1,3 +1,5 @@
+from typing import List, Dict, Any
+
 class Chunk:
     def __init__(
         self,
@@ -8,7 +10,13 @@ class Chunk:
         chunk_id: str = "",
         public_id: str = "",  
         tags: str = "",
-
+        start: float = 0.0,
+        end: float = 0.0,
+        confidence: float = 0.0,
+        channel: int = 0,
+        speaker: float = 0.0,
+        original_id: str = "",
+        words: List[Dict[str, Any]] = None
     ):
         self._text = text
         self._doc_name = doc_name
@@ -20,7 +28,15 @@ class Chunk:
         self._score = 0
         self._public_id = public_id
         self._tags = tags
+        self._start = start
+        self._end = end
+        self._confidence = confidence
+        self._channel = channel
+        self._speaker = speaker
+        self._original_id = original_id
+        self._words = words if words is not None else []
         self.meta = {}
+
 
     @property
     def text(self):
@@ -66,6 +82,35 @@ class Chunk:
     @property
     def tags(self):
         return self._tags
+    
+    @property
+    def start(self):
+        return self._start
+
+    @property
+    def end(self):
+        return self._end
+
+    @property
+    def confidence(self):
+        return self._confidence
+
+    @property
+    def channel(self):
+        return self._channel
+
+    @property
+    def speaker(self):
+        return self._speaker
+
+    @property
+    def original_id(self):
+        return self._original_id
+
+    @property
+    def words(self):
+        return self._words
+    
 
     def set_public_id(self, public_id):
         self._public_id = public_id
@@ -99,6 +144,13 @@ class Chunk:
             "public_id": self.public_id,
             "tags": self.tags,
             "meta": self.meta,
+            "start": self.start,
+            "end": self.end,
+            "confidence": self.confidence,
+            "channel": self.channel,
+            "speaker": self.speaker,
+            "original_id": self.original_id,
+            "words": self.words,
 
         }
 
@@ -113,6 +165,13 @@ class Chunk:
             chunk_id=data.get("chunk_id", ""),
             public_id=data.get("public_id", ""),
             tags=data.get("tags", ""),
+            start=data.get("start", 0.0),
+            end=data.get("end", 0.0),
+            confidence=data.get("confidence", 0.0),
+            channel=data.get("channel", 0),
+            speaker=data.get("speaker", 0),
+            original_id=data.get("original_id", ""),
+            words=data.get("words", []),
         )
         chunk.set_tokens(data.get("tokens", 0))
         chunk.set_vector(data.get("vector", None))

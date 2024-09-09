@@ -1,7 +1,7 @@
 import os
 import ssl
 import logging
-
+import json
 import weaviate
 from dotenv import load_dotenv, find_dotenv
 from wasabi import msg
@@ -10,6 +10,7 @@ from weaviate.embedded import EmbeddedOptions
 import goldenverba.components.schema.schema_generation as schema_manager
 from goldenverba.components.chunking.MemeChunker import MemeChunker
 
+from goldenverba.components.generation.TranscriptionSearchGenerator import TranscriptionSearchGenerator
 from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator
 
 
@@ -32,6 +33,10 @@ from goldenverba.components.managers import (
     RetrieverManager,
     GeneratorManager,
 )
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -554,7 +559,7 @@ class VerbaManager:
 
         msg.info("Added query to suggestions")
 
-    def retrieve_chunks(self, queries: list[str]) -> list[Chunk]:
+    def retrieve_chunks(self, queries: list[str]) -> tuple:
         """
         Retrieve relevant chunks based on queries.
 
@@ -568,42 +573,58 @@ class VerbaManager:
             queries,
             self.client,
             self.embedder_manager.embedders[self.embedder_manager.selected_embedder],
-            self.generator_manager.generators[
-                self.generator_manager.selected_generator
-            ],
+            self.generator_manager.generators[self.generator_manager.selected_generator],
         )
         
         print(f"Retrieved {len(chunks)} chunks")
         
         processed_chunks = []
-        for i, chunk in enumerate(chunks):
-            print(f"Chunk {i}: {chunk.to_dict()}")
-            
-            # Retrieve the full document data for this chunk
+        chunk_info = []
+        for chunk in chunks:
             doc_id = chunk.doc_uuid
             full_doc = self.retrieve_document(doc_id)
             
             if full_doc:
                 doc_properties = full_doc.get("properties", {})
+                doc_chunk_info = doc_properties.get("chunk_info", [])
                 
-                # Update chunk with additional information
-                chunk.set_public_id(doc_properties.get("id", ""))
-                chunk.set_tags(doc_properties.get("tags", []))
+                # Find the corresponding chunk info from the document
+                matching_chunk_info = next((ci for ci in doc_chunk_info if ci.get("chunk_id") == str(chunk.chunk_id)), None)
                 
-                # Add template_images to chunk's meta
-                chunk.meta["template_images"] = doc_properties.get("template_images", [])
-            
-            processed_chunks.append(chunk)
-
-        chunk_info = [{"public_id": chunk.public_id, "tags": chunk.tags} for chunk in processed_chunks]
+                if matching_chunk_info:
+                    chunk_info.append(matching_chunk_info)
+                    processed_chunks.append(chunk)  # Add the chunk to processed_chunks
+                else:
+                    # Fallback to creating chunk info from the chunk object
+                    fallback_chunk_info = {
+                        "public_id": chunk.public_id,
+                        "tags": chunk.tags,
+                        "text": chunk.text,
+                        "doc_name": chunk.doc_name,
+                        "doc_type": chunk.doc_type,
+                        "doc_uuid": chunk.doc_uuid,
+                        "chunk_id": chunk.chunk_id,
+                        "start": chunk.start,
+                        "end": chunk.end,
+                        "confidence": chunk.confidence,
+                        "channel": chunk.channel,
+                        "speaker": chunk.speaker,
+                        "original_id": chunk.original_id,
+                        "words": chunk.words,
+                        "meta": chunk.meta
+                    }
+                    chunk_info.append(fallback_chunk_info)
+                    processed_chunks.append(chunk)  # Add the chunk to processed_chunks
         
         # Get the first template image's public_id
         first_template_public_id = ''
         if processed_chunks and processed_chunks[0].meta.get('template_images'):
             first_template_public_id = processed_chunks[0].meta['template_images'][0]
         
+        print(f"Processed {len(processed_chunks)} chunks")
         print(f"First chunk meta: {processed_chunks[0].meta if processed_chunks else 'No chunks'}")
         print(f"First template public_id: {first_template_public_id}")
+        print(f"Chunk info: {json.dumps(chunk_info, indent=2)}")
 
         return processed_chunks, context, chunk_info, first_template_public_id
 
@@ -736,7 +757,7 @@ class VerbaManager:
         return document
 
     async def generate_answer(
-        self, queries: list[str], contexts: list[str], conversation: dict
+    self, queries: list[str], contexts: list[str], conversation: dict, chunk_info: list = None
     ):
         
         """
@@ -773,7 +794,7 @@ class VerbaManager:
         else:
             full_text = await self.generator_manager.generators[
                 self.generator_manager.selected_generator
-            ].generate(queries, contexts, conversation)
+            ].generate(queries, contexts, conversation, chunk_info)
             if self.enable_caching:
                 self.embedder_manager.embedders[
                     self.embedder_manager.selected_embedder
@@ -785,8 +806,8 @@ class VerbaManager:
         semantic_result = None
         chunks, context, chunk_info, first_template_public_id = self.retrieve_chunks(queries)
 
-        print(f"Retrieved chunks with public_ids: {[chunk['public_id'] for chunk in chunk_info]} and tags: {[chunk['tags'] for chunk in chunk_info]}")
-        print(f"First template public_id: {first_template_public_id}")
+        msg.info(f"Retrieved chunks with full info: {json.dumps(chunk_info, indent=2)}")
+        msg.info(f"First template public_id: {first_template_public_id}")
 
         if self.enable_caching:
             semantic_query = self.embedder_manager.embedders[
@@ -806,8 +827,8 @@ class VerbaManager:
                 "public_id": [chunk["public_id"] for chunk in chunk_info if chunk["public_id"]],
                 "tags": [chunk["tags"] for chunk in chunk_info if chunk["tags"]],
                 "template_public_id": first_template_public_id,
-                "exposed_frames": [chunk.meta.get('frame_number') for chunk in chunks if chunk.meta.get('frame_number') is not None]
-
+                "exposed_frames": [chunk.meta.get('frame_number') for chunk in chunks if chunk.meta.get('frame_number') is not None],
+                "chunk_info": chunk_info
             }
         else:
             full_text = ""
@@ -820,14 +841,37 @@ class VerbaManager:
                     yield {
                         "message": result,
                         "finish_reason": "stop",
-                        "images": [{"public_id": chunk["public_id"]} for chunk in chunk_info if chunk["public_id"]],
-                        "public_id": [chunk["public_id"] for chunk in chunk_info if chunk["public_id"]],
-                        "tags": [chunk["tags"] for chunk in chunk_info if chunk["tags"]],
-                        "template_public_id": first_template_public_id
+                        "images": [{"public_id": chunk.get("public_id", "")} for chunk in chunk_info if chunk.get("public_id")],
+                        "public_id": [chunk.get("public_id", "") for chunk in chunk_info if chunk.get("public_id")],
+                        "tags": [chunk.get("tags", []) for chunk in chunk_info if chunk.get("tags")],
+                        "template_public_id": first_template_public_id,
+                        "chunk_info": chunk_info,
                     }
                 except Exception as e:
+                    logger.error(f"Error in VideoEditingGenerator: {str(e)}")
                     yield {
                         "message": f"Error in VideoEditingGenerator: {str(e)}",
+                        "finish_reason": "error",
+                        "error": str(e)
+                    }
+            elif isinstance(generator, TranscriptionSearchGenerator):
+                # Handle TranscriptionSearchGenerator
+                try:
+                    async for result in generator.generate_stream(queries, [context], conversation, chunk_info):
+                        full_text += result["message"]
+                        result.update({
+                            "chunk_info": chunk_info,
+                            "images": [{"public_id": chunk.get("public_id", "")} for chunk in chunk_info if chunk.get("public_id")],
+                            "public_id": [chunk.get("public_id", "") for chunk in chunk_info if chunk.get("public_id")],
+                            "tags": [chunk.get("tags", []) for chunk in chunk_info if chunk.get("tags")],
+                            "template_public_id": first_template_public_id
+                        })
+                        logger.info(f"Yielding chunk with info: {json.dumps(result['chunk_info'], indent=2)[:700]}{'...' if len(json.dumps(result['chunk_info'], indent=2)) > 1200 else ''}")
+                        yield result
+                except Exception as e:
+                    logger.error(f"Error in TranscriptionSearchGenerator: {str(e)}")
+                    yield {
+                        "message": f"Error in TranscriptionSearchGenerator: {str(e)}",
                         "finish_reason": "error",
                         "error": str(e)
                     }
@@ -837,25 +881,27 @@ class VerbaManager:
                     async for result in generator.generate_stream(queries, [context], conversation):
                         full_text += result["message"]
                         result.update({
-                            "images": [{"public_id": chunk["public_id"]} for chunk in chunk_info if chunk["public_id"]],
-                            "public_id": [chunk["public_id"] for chunk in chunk_info if chunk["public_id"]],
-                            "tags": [chunk["tags"] for chunk in chunk_info if chunk["tags"]],
+                            "chunk_info": chunk_info,
+                            "images": [{"public_id": chunk.get("public_id", "")} for chunk in chunk_info if chunk.get("public_id")],
+                            "public_id": [chunk.get("public_id", "") for chunk in chunk_info if chunk.get("public_id")],
+                            "tags": [chunk.get("tags", []) for chunk in chunk_info if chunk.get("tags")],
                             "template_public_id": first_template_public_id
                         })
-                        print(f"Yielding chunk with public_ids: {result['public_id']}, tags: {result['tags']}, and template_public_id: {result['template_public_id']}")
+                        logger.info(f"Yielding chunk with info: {json.dumps(result['chunk_info'], indent=2)[:700]}{'...' if len(json.dumps(result['chunk_info'], indent=2)) > 1200 else ''}")
                         yield result
                 except Exception as e:
+                    logger.error(f"Error in generator: {str(e)}")
                     yield {
                         "message": f"Error in generator: {str(e)}",
                         "finish_reason": "error",
                         "error": str(e)
                     }
 
-            if self.enable_caching:
-                self.embedder_manager.embedders[
-                    self.embedder_manager.selected_embedder
-                ].add_to_semantic_cache(self.client, semantic_query, full_text)
-                self.set_suggestions(" ".join(queries))
+        if self.enable_caching:
+            self.embedder_manager.embedders[
+                self.embedder_manager.selected_embedder
+            ].add_to_semantic_cache(self.client, semantic_query, full_text)
+            self.set_suggestions(" ".join(queries))
                 
     def debug_print_document(self, doc_name):
         """

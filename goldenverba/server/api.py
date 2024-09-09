@@ -2,9 +2,11 @@ from fastapi import FastAPI, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-
+import json
 import os
 from pathlib import Path
+
+import logging
 
 from dotenv import load_dotenv
 from starlette.websockets import WebSocketDisconnect
@@ -22,6 +24,9 @@ from goldenverba.server.types import (
     ImportPayload,
 )
 from goldenverba.server.util import get_config, set_config, setup_managers
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -171,6 +176,7 @@ async def retrieve_config():
 The @app.websocket("/ws/generate_stream") decorator is used to specify that this function should handle WebSocket connections to the specified URL.
 The function handles incoming messages from the client, generates a response, and sends it back to the client.
 '''
+import traceback
 
 @app.websocket("/ws/generate_stream")
 async def websocket_generate_stream(websocket: WebSocket):
@@ -193,15 +199,17 @@ async def websocket_generate_stream(websocket: WebSocket):
                 await websocket.send_json(chunk)
 
         except WebSocketDisconnect:
-            msg.warn("WebSocket connection closed by client.")
+            logger.warning("WebSocket connection closed by client.")
             break  # Break out of the loop when the client disconnects
 
         except Exception as e:
-            msg.fail(f"WebSocket Error: {str(e)}")
-            error_response = {"message": str(e), "finish_reason": "stop", "full_text": str(e)}
+            logger.error(f"WebSocket Error: {str(e)}")
+            logger.error(f"Error traceback: {traceback.format_exc()}")
+            error_response = {"message": str(e), "finish_reason": "error", "full_text": str(e)}
             # Log the error payload before sending it back to the client
-            msg.info(f"Sending error response to client: {error_response}")
+            logger.info(f"Sending error response to client: {error_response}")
             await websocket.send_json(error_response)
+
         msg.good("Successfully streamed answer")
 
 ### POST
@@ -400,10 +408,13 @@ async def get_document(payload: GetDocumentPayload):
                     "document": None,
                 }
             )
-
+               # Add chunk_info to the response
+        document_properties = document.get("properties", {})
+        chunk_info = document_properties.get("chunk_info", [])
+        msg.info(f"api/get_document passing chunk_info: {json.dumps(chunk_info, indent=2)}")
         # Log the complete document object
         msg.info(f"Complete Document Data: {document}")
-
+        msg.info(f"Document Properties: {document.get('properties', {})}")
         document_properties = document.get("properties", {})
         document_obj = {
             "class": document.get("class", "No Class"),
@@ -420,13 +431,20 @@ async def get_document(payload: GetDocumentPayload):
             "views": document_properties.get("views", 0),
             "comments": document_properties.get("comments", 0),
             "status": document_properties.get("status", ""),
-            "meta": {k: v for k, v in document_properties.items() if k not in [
-                "chunk_count", "doc_link", "doc_name", "doc_type", "text", "timestamp",
-                "tags", "example_images", "template_images", "views", "comments", "status"
-            ]}
+            "meta": {
+                k: v for k, v in document_properties.items() if k not in [
+                    "chunk_count", "doc_link", "doc_name", "doc_type", "text", "timestamp",
+                    "tags", "example_images", "template_images", "views", "comments", "status", "chunk_info"
+                ]
+            }
         }
 
-        msg.good(f"Succesfully retrieved document: {payload.document_id}")
+  
+
+        # Log the chunk_info
+        msg.info(f"document_obj created with Chunk Info: {json.dumps(chunk_info, indent=2)[:700]}{'...' if len(json.dumps(chunk_info, indent=2)) > 1200 else ''}")
+
+        msg.good(f"Successfully retrieved document: {payload.document_id}")
         return JSONResponse(
             content={
                 "error": "",
