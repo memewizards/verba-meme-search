@@ -806,7 +806,7 @@ class VerbaManager:
         semantic_result = None
         chunks, context, chunk_info, first_template_public_id = self.retrieve_chunks(queries)
 
-        msg.info(f"Retrieved chunks with full info: {json.dumps(chunk_info, indent=2)}")
+        msg.info(f"Retrieved chunks with full info: {json.dumps(chunk_info, indent=2)[:200]}...")
         msg.info(f"First template public_id: {first_template_public_id}")
 
         if self.enable_caching:

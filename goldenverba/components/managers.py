@@ -34,17 +34,20 @@ from goldenverba.components.embedding.MixedbreadEmbedder import MixedbreadEmbedd
 
 from goldenverba.components.retriever.WindowRetriever import WindowRetriever
 from goldenverba.components.retriever.TypeFilteringWindowRetriever import TypeFilteringWindowRetriever
+from goldenverba.components.retriever.WindowRetrieveSimilarity import WindowRetrieveSimilarity
 
 from goldenverba.components.generation.GeminiGenerator import GeminiGenerator
 from goldenverba.components.generation.CohereGenerator import CohereGenerator
 from goldenverba.components.generation.GPT3Generator import GPT3Generator
 from goldenverba.components.generation.GPT4Generator import GPT4Generator
+from goldenverba.components.generation.StoryJSONGenerator import StoryJSONGenerator
 
 from goldenverba.components.generation.OllamaGenerator import OllamaGenerator
 from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator
 from goldenverba.components.generation.VideoFrameGenerator import VideoFrameGenerator
 from goldenverba.components.generation.PlanningGenerator import PlanningGenerator
 from goldenverba.components.generation.TranscriptionSearchGenerator import TranscriptionSearchGenerator
+from goldenverba.components.generation.TranscriptionFinder import TranscriptionFinder
 
 # #Instructions? 
 # from goldenverba.components.generation.VideoEditingGenerator import VideoEditingGenerator, VideoEditingInstructions
@@ -258,6 +261,7 @@ class RetrieverManager:
         self.retrievers: dict[str, Retriever] = {
             "WindowRetriever": WindowRetriever(),
             "TypeFilteringWindowRetriever": TypeFilteringWindowRetriever(),
+            "WindowRetrieveSimilarity": WindowRetrieveSimilarity(),
         }
         self.selected_retriever: str = "WindowRetriever"
 
@@ -306,6 +310,8 @@ class GeneratorManager:
             "VideoFrame": VideoFrameGenerator(),
             "Planning": PlanningGenerator(),
             "TranscriptionSearch": TranscriptionSearchGenerator(),
+            "TranscriptionFinder": TranscriptionFinder(),
+            "StoryJSONGenerator": StoryJSONGenerator(),
         }
         self.selected_generator: str = "VideoEditing"
 

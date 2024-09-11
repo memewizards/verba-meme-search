@@ -195,7 +195,7 @@ async def websocket_generate_stream(websocket: WebSocket):
                 if chunk["finish_reason"] == "stop":
                     chunk["full_text"] = full_text
                 # Log the payload before sending it back to the client
-                msg.info(f"Sending chunk to client: {chunk}")
+                msg.info(f"Sending chunk to client: {str(chunk)[:100]}...")
                 await websocket.send_json(chunk)
 
         except WebSocketDisconnect:
@@ -311,7 +311,60 @@ async def update_config(payload: ConfigPayload):
             "status_msg": "Config Updated",
         }
     )
+    
+from fastapi.responses import StreamingResponse
 
+@app.post("/api/generateChadMeme")
+async def generate_chad_meme(payload: QueryPayload):
+    try:
+        query = payload.query
+        msg.good(f"Received text for generation: {query}")
+        start_time = time.time()
+
+        generated_chunks = []
+        async for chunk in manager.generate_stream_answer([query], [], {}):
+            generated_chunks.append(chunk)
+            msg.info(f"Received chunk: {str(chunk)[:100]}...")  # Log each chunk
+
+        elapsed_time = round(time.time() - start_time, 2)
+        msg.good(f"Successfully generated Chad Meme for: {query} in {elapsed_time}s")
+
+        if not generated_chunks:
+            msg.warn("No content generated")
+            return JSONResponse(
+                content={
+                    "generated_text": "",
+                    "error": "No content generated",
+                    "took": elapsed_time
+                }
+            )
+
+        # Combine all generated chunks into a single response
+        combined_response = {
+            "generated_text": "".join(chunk.get("message", "") for chunk in generated_chunks),
+            "error": "",
+            "took": elapsed_time,
+            "chunk_info": generated_chunks[-1].get("chunk_info", []),
+            "images": generated_chunks[-1].get("images", []),
+            "public_id": generated_chunks[-1].get("public_id", []),
+            "tags": generated_chunks[-1].get("tags", []),
+            "template_public_id": generated_chunks[-1].get("template_public_id", "")
+        }
+
+        msg.good(f"Combined response: {str(combined_response)[:200]}...")  # Log the combined response
+        return JSONResponse(content=combined_response)
+
+    except Exception as e:
+        msg.warn(f"Failed to generate Chad Meme: {str(e)}")
+        return JSONResponse(
+            content={
+                "generated_text": "",
+                "error": f"Failed to generate Chad Meme: {str(e)}",
+                "took": 0
+            },
+            status_code=500
+        )
+        
 # Receive query and return chunks and query answer
 @app.post("/api/query")
 async def query(payload: QueryPayload):
@@ -349,9 +402,8 @@ async def query(payload: QueryPayload):
                 }
             )
 
-        return JSONResponse(
-            content={
-                "error": "",
+        return JSONResponse({
+            "error": "",
                 "chunks": retrieved_chunks,
                 "context": context,
                 "took": elapsed_time,
@@ -411,7 +463,8 @@ async def get_document(payload: GetDocumentPayload):
                # Add chunk_info to the response
         document_properties = document.get("properties", {})
         chunk_info = document_properties.get("chunk_info", [])
-        msg.info(f"api/get_document passing chunk_info: {json.dumps(chunk_info, indent=2)}")
+        msg.info(f"api/get_document passing chunk_info: {json.dumps(chunk_info, indent=2)[:100]}...")
+
         # Log the complete document object
         msg.info(f"Complete Document Data: {document}")
         msg.info(f"Document Properties: {document.get('properties', {})}")

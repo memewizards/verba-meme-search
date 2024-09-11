@@ -559,7 +559,7 @@ class Retriever(VerbaComponent):
         raise NotImplementedError("load method must be implemented by a subclass.")
     
     def cutoff_text(self, text: str, content_length: int) -> str:
-        encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
+        encoding = tiktoken.encoding_for_model("gpt-4")
 
         # Tokenize the input text
         encoded_tokens = encoding.encode(text, disallowed_special=())
