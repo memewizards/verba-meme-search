@@ -1,0 +1,26 @@
+{
+  "Chad1": {
+      "language_code": "en-US",
+      "voice_name": "en-US-Wavenet-D",
+      "pitch": 0.0,
+      "speaking_rate": 1.0
+  },
+  "Chad2": {
+      "language_code": "en-US",
+      "voice_name": "en-US-Wavenet-E",
+      "pitch": 0.0,
+      "speaking_rate": 1.0
+  },
+  "Soyjak1": {
+      "language_code": "en-US",
+      "voice_name": "en-US-Wavenet-F",
+      "pitch": 0.0,
+      "speaking_rate": 1.0
+  },
+  "Soyjak2": {
+      "language_code": "en-US",
+      "voice_name": "en-US-Wavenet-G",
+      "pitch": 0.0,
+      "speaking_rate": 1.0
+  }
+}

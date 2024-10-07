@@ -313,7 +313,7 @@ class GeneratorManager:
             "TranscriptionFinder": TranscriptionFinder(),
             "StoryJSONGenerator": StoryJSONGenerator(),
         }
-        self.selected_generator: str = "VideoEditing"
+        self.selected_generator: str = "StoryJSONGenerator"
 
     async def generate_stream(
         self,

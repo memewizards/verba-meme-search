@@ -7,9 +7,23 @@ import openai
 import asyncio
 from pydub import AudioSegment
 from google.cloud import texttospeech
+import hashlib
 
 from pydantic import BaseModel, Field
 from typing import List, Literal, Optional
+
+# Import Cloudinary modules
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
+
+# Import regular expressions for filename sanitization
+import re
+
+#import cloudinary_video_renderer
+from ..video_creation.cloudinary_video_renderer import CloudinaryVideoRenderer
+from ..video_creation.moviepy_video_renderer import MoviePyVideoRenderer
+
 
 load_dotenv()
 
@@ -24,7 +38,8 @@ DEFAULT_VOICE_SETTINGS = {
 class DialogueLine(BaseModel):
     character: str = Field(description="Name of the character speaking")
     line: str = Field(description="The line of dialogue spoken by the character")
-    audio_file: Optional[str] = Field(default=None, description="File path to the TTS audio of the line")
+    audio_file: Optional[str] = Field(default=None, description="Local filename of the TTS audio")
+    audio_url: Optional[str] = Field(default=None, description="Cloudinary URL of the TTS audio")
     duration: Optional[float] = Field(default=None, description="Duration of the audio in seconds")
 
 # Define Pydantic models for the initial schema with dialogue
@@ -61,18 +76,47 @@ class DetailedStorySchema(BaseModel):
     shots: List[DetailedShot] = Field(description="List of shots in the story")
 
 class StoryJSONGenerator(Generator):
-   
+
     def __init__(self):
         super().__init__()
         self.name = "StoryJSONGenerator"
         self.description = "Generator for creating detailed story JSON schemas for animated videos"
-        self.requires_library = ["openai"]
-        self.requires_env = ["OPENAI_API_KEY"]
+        self.requires_library = ["openai", "cloudinary"]
+        self.requires_env = [
+            "OPENAI_API_KEY",
+            "CLOUDINARY_CLOUD_NAME",
+            "CLOUDINARY_API_KEY",
+            "CLOUDINARY_API_SECRET"
+        ]
         self.streamable = True
         self.model_name = os.getenv("OPENAI_MODEL", "gpt-4")
         self.context_window = 10000
 
+        # Cloudinary configuration
+        self.cloudinary_config = {
+            "cloud_name": os.getenv('CLOUDINARY_CLOUD_NAME'),
+            "api_key": os.getenv('CLOUDINARY_API_KEY'),
+            "api_secret": os.getenv('CLOUDINARY_API_SECRET'),
+            "secure": True
+        }
+        
+                # Add a class attribute for video rendering control
+        self.render_video = os.getenv('RENDER_VIDEO_WITH_CLOUDINARY', 'False').lower() == 'true'
 
+
+        # Initialize Cloudinary
+        cloudinary.config(**self.cloudinary_config)
+
+        # Initialize CloudinaryVideoRenderer
+        self.video_renderer = MoviePyVideoRenderer(self.cloudinary_config)
+        
+        # Initialize other necessary components
+        self.initialize_components()
+
+    def initialize_components(self):
+        # Initialize CloudinaryVideoRenderer
+        self.video_renderer = CloudinaryVideoRenderer(self.cloudinary_config)
+        self.video_renderer = MoviePyVideoRenderer(self.cloudinary_config)
 
     def load_character_voice_mapping(self, character_names):
         # Load character voice mapping from a JSON file
@@ -80,14 +124,21 @@ class StoryJSONGenerator(Generator):
         if os.path.exists(voice_mapping_file):
             with open(voice_mapping_file, "r") as f:
                 self.CHARACTER_VOICE_MAPPING = json.load(f)
+            logging.info("Character voice mapping loaded successfully.")
         else:
             self.CHARACTER_VOICE_MAPPING = {}
             logging.warning(f"Character voice mapping file '{voice_mapping_file}' not found. Starting with an empty mapping.")
+
+        # Log the loaded mappings
+        for character, settings in self.CHARACTER_VOICE_MAPPING.items():
+            logging.debug(f"Loaded voice settings for '{character}': {settings}")
 
         # Assign default voice settings to any new characters
         for character in character_names:
             if character not in self.CHARACTER_VOICE_MAPPING:
                 self.CHARACTER_VOICE_MAPPING[character] = DEFAULT_VOICE_SETTINGS.copy()
+                logging.info(f"Assigned default voice settings to new character '{character}'.")
+
 
     async def generate_stream(self, queries: List[str], context: List[str], conversation: dict = None):
         openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -140,7 +191,7 @@ class StoryJSONGenerator(Generator):
         # Step 3: Process dialogues for TTS
         self.process_dialogues_for_tts(detailed_schema)
 
-        # Save updated detailed schema with audio files
+        # Save updated detailed schema with audio files and URLs
         updated_detailed_schema_json = detailed_schema.model_dump()
         with open("detailed_story_schema_with_audio.json", "w") as f:
             json.dump(updated_detailed_schema_json, f, indent=2)
@@ -149,26 +200,56 @@ class StoryJSONGenerator(Generator):
             "message": f"Detailed story schema updated with audio files:\n\n{json.dumps(updated_detailed_schema_json, indent=2)}",
             "finish_reason": "",
         }
+        print("StoryJSONGenerator: Reached video rendering decision point")
+        print(f"StoryJSONGenerator: self.render_video is {self.render_video}")
+        print(f"StoryJSONGenerator: video_renderer type: {type(self.video_renderer)}")
+        print(f"StoryJSONGenerator: video_renderer config: {self.video_renderer.cloudinary_config}")
 
-        # Step 4: Generate timeline commands
-        try:
-            logging.info("Starting Step 4: Parsing detailed schema and generating timeline commands")
+        if self.render_video:
+            print("StoryJSONGenerator: Starting video rendering process")
+            try:
+                # Use the updated schema with audio for video rendering
+                print(f"StoryJSONGenerator: Type of updated_detailed_schema_json: {type(updated_detailed_schema_json)}")
+                print(f"StoryJSONGenerator: Content of updated_detailed_schema_json (truncated): {json.dumps(updated_detailed_schema_json, indent=2)[:500]}...")
+
+                video_url = self.video_renderer.process_schema_for_video(updated_detailed_schema_json)
+                print(f"StoryJSONGenerator: Video rendering complete. URL: {video_url}")
+                yield {
+                    "message": f"Video generated: {video_url}",
+                    "finish_reason": "",
+                }
+            except Exception as e:
+                    import traceback
+                    error_traceback = traceback.format_exc()
+                    print(f"StoryJSONGenerator: Error during video rendering: {str(e)}")
+                    print(f"StoryJSONGenerator: Full error traceback:\n{error_traceback}")
+                    yield {
+                        "message": f"Error during video rendering: {str(e)}",
+                        "finish_reason": "error",
+                    }
+                
+            print("StoryJSONGenerator: Skipping timeline commands generation")
+            return  # Exit the generator function here
+        else:
+            print("StoryJSONGenerator: Video rendering skipped")
+            yield {
+                "message": "Video rendering skipped.",
+                "finish_reason": "",
+            }
+
+            print("StoryJSONGenerator: Proceeding to timeline commands generation")
+            # Step 4: Generate timeline commands
             timeline_commands = self.video_idea_to_timeline_commands(detailed_schema)
-            logging.info(f"Generated timeline commands (first 100 chars): {timeline_commands[:100]}...")
+            
+            # Save timeline commands to JSON file
+            with open("timeline_commands.json", "w") as f:
+                json.dump(timeline_commands, f, indent=2)
 
             yield {
-                "message": f"Timeline commands generated and saved to 'timeline_commands.json':\n\n{timeline_commands}",
+                "message": f"Timeline commands generated:\n\n{json.dumps(timeline_commands, indent=2)}",
                 "finish_reason": "stop",
             }
-        except Exception as e:
-            logging.error(f"Error in generate_stream: {str(e)}")
-            logging.error(f"Error details: {type(e).__name__}, {str(e)}")
-            import traceback
-            logging.error(f"Traceback: {traceback.format_exc()}")
-            yield {
-                "message": f"Error generating timeline commands: {str(e)}",
-                "finish_reason": "error",
-            }
+
 
     async def generate_initial_schema(self, user_story_idea, context_text):
         messages = [
@@ -275,9 +356,6 @@ class StoryJSONGenerator(Generator):
         return result
 
     def process_dialogues_for_tts(self, detailed_schema):
-        from google.cloud import texttospeech
-        import hashlib
-
         client = texttospeech.TextToSpeechClient()
 
         for shot in detailed_schema.shots:
@@ -291,69 +369,103 @@ class StoryJSONGenerator(Generator):
                     self.handle_missing_voice_settings(character)
                     voice_settings = self.CHARACTER_VOICE_MAPPING[character]
 
-                # Ensure language code and voice name are available
+                # Fallback if language_code or voice_name is missing
+                if not voice_settings.get("language_code") or not voice_settings.get("voice_name"):
+                    logging.warning(f"Missing language_code or voice_name for '{character}'. Using default settings.")
+                    voice_settings = DEFAULT_VOICE_SETTINGS.copy()
+                    self.CHARACTER_VOICE_MAPPING[character] = voice_settings
+
                 language_code = voice_settings.get("language_code")
                 voice_name = voice_settings.get("voice_name")
 
-                if not language_code or not voice_name:
-                    logging.error(f"Missing language code or voice name for character '{character}'. Skipping dialogue line.")
-                    continue
+                # Extract the first four words from the dialogue line
+                first_four_words = '_'.join(line.split()[:4])
+                # Remove any characters that are not letters, numbers, or underscores
+                first_four_words = re.sub(r'[^A-Za-z0-9_]', '', first_four_words)
+                # Limit the length of the first_four_words to prevent overly long filenames
+                first_four_words = first_four_words[:50]
 
-                # Generate audio file path
-                filename_hash = hashlib.md5(f"{character}_{line}".encode('utf-8')).hexdigest()
-                output_filename = os.path.join("audio", f"{character}_{filename_hash}.mp3")
+                # Generate a hash to ensure filename uniqueness
+                filename_hash = hashlib.md5(f"{character}_{line}".encode('utf-8')).hexdigest()[:8]
+
+                # **Sanitize the filename to remove spaces**
+                filename_base = f"{character.replace(' ', '_')}_{first_four_words}_{filename_hash}.mp3"
+                output_filename = os.path.join("audio", filename_base)
+
+                # Ensure the directory exists
+                os.makedirs(os.path.dirname(output_filename), exist_ok=True)
 
                 # Check if audio file already exists
                 if os.path.exists(output_filename):
                     logging.info(f"Using cached audio for '{character}': {output_filename}")
                     # Get audio duration
                     audio_duration = self.get_audio_duration(output_filename)
-                    # Assign audio file and duration to dialogue line
-                    dialogue_line.audio_file = output_filename
-                    dialogue_line.duration = audio_duration
-                    continue
+                else:
+                    # Prepare synthesis input
+                    synthesis_input = texttospeech.SynthesisInput(text=line)
 
-                # Prepare synthesis input
-                synthesis_input = texttospeech.SynthesisInput(text=line)
-
-                # Prepare voice parameters
-                voice = texttospeech.VoiceSelectionParams(
-                    language_code=language_code,
-                    name=voice_name
-                )
-
-                # Prepare audio configuration
-                audio_config = texttospeech.AudioConfig(
-                    audio_encoding=texttospeech.AudioEncoding.MP3,
-                    pitch=voice_settings.get("pitch", 0.0),
-                    speaking_rate=voice_settings.get("speaking_rate", 1.0)
-                )
-
-                # Perform TTS synthesis
-                try:
-                    response = client.synthesize_speech(
-                        input=synthesis_input,
-                        voice=voice,
-                        audio_config=audio_config
+                    # Prepare voice parameters
+                    voice = texttospeech.VoiceSelectionParams(
+                        language_code=language_code,
+                        name=voice_name
                     )
+
+                    # Prepare audio configuration
+                    audio_config = texttospeech.AudioConfig(
+                        audio_encoding=texttospeech.AudioEncoding.MP3,
+                        pitch=voice_settings.get("pitch", 0.0),
+                        speaking_rate=voice_settings.get("speaking_rate", 1.0)
+                    )
+
+                    # Perform TTS synthesis
+                    try:
+                        response = client.synthesize_speech(
+                            input=synthesis_input,
+                            voice=voice,
+                            audio_config=audio_config
+                        )
+                    except Exception as e:
+                        logging.error(f"Error synthesizing speech for '{character}': {e}")
+                        continue  # Skip this dialogue line
+
+                    # Save the audio to a file
+                    with open(output_filename, "wb") as out:
+                        out.write(response.audio_content)
+                        logging.info(f"Audio content for '{character}' written to file {output_filename}")
+
+                    # Get audio duration
+                    audio_duration = self.get_audio_duration(output_filename)
+
+                # Upload the audio file to Cloudinary
+                try:
+                    # Use a deterministic public ID based on the sanitized filename without extension
+                    public_id = os.path.splitext(filename_base)[0]
+                    upload_result = cloudinary.uploader.upload(
+                        output_filename,
+                        resource_type='video',  # Use 'video' for audio files
+                        public_id=public_id,
+                        unique_filename=False,
+                        overwrite=False  # Do not overwrite if it exists
+                    )
+                    cloudinary_url = upload_result['secure_url']
+                    logging.info(f"Uploaded audio file to Cloudinary: {cloudinary_url}")
+
+                    # Assign local filename, Cloudinary URL, and duration to dialogue line
+                    dialogue_line.audio_file = filename_base  # Local filename to be used in timeline commands
+                    dialogue_line.audio_url = cloudinary_url  # URL for the client to download
+                    dialogue_line.duration = audio_duration
+
+                    # Delete the local audio file after successful upload
+                    try:
+                        os.remove(output_filename)
+                        logging.info(f"Deleted local audio file: {output_filename}")
+                    except Exception as e:
+                        logging.error(f"Error deleting local audio file '{output_filename}': {e}")
+
                 except Exception as e:
-                    logging.error(f"Error synthesizing speech for '{character}': {e}")
+                    logging.error(f"Error uploading audio to Cloudinary for '{character}': {e}")
+                    # Optionally, you can decide whether to delete the file if upload fails
                     continue  # Skip this dialogue line
-
-                # Ensure the directory exists
-                os.makedirs(os.path.dirname(output_filename), exist_ok=True)
-
-                # Save the audio to a file
-                with open(output_filename, "wb") as out:
-                    out.write(response.audio_content)
-                    logging.info(f"Audio content for '{character}' written to file {output_filename}")
-
-                # Get audio duration
-                audio_duration = self.get_audio_duration(output_filename)
-
-                # Assign audio file and duration to dialogue line
-                dialogue_line.audio_file = output_filename
-                dialogue_line.duration = audio_duration
 
 
     def get_audio_duration(self, file_path):
@@ -364,15 +476,16 @@ class StoryJSONGenerator(Generator):
 
     def handle_missing_voice_settings(self, character):
         logging.warning(f"No voice settings found for character: {character}. Assigning default voice settings.")
-        self.CHARACTER_VOICE_MAPPING[character] = self.DEFAULT_VOICE_SETTINGS.copy()
-        
+        self.CHARACTER_VOICE_MAPPING[character] = DEFAULT_VOICE_SETTINGS.copy()
+
     def extract_character_names(self, detailed_schema):
         character_names = set()
         for shot in detailed_schema.shots:
             for dialogue_line in shot.dialogue:
                 character_names.add(dialogue_line.character.strip())
         return character_names
-
+    
+    
 
     def video_idea_to_timeline_commands(self, video_idea):
         logging.info("Starting video_idea_to_timeline_commands method")
@@ -380,67 +493,148 @@ class StoryJSONGenerator(Generator):
         current_time = 0.0
         total_commands = 0  # Initialize total_commands
 
+        # Get Cloudinary cloud name from environment variable
+        cloudinary_cloud_name = os.getenv('CLOUDINARY_CLOUD_NAME')
+
+        # Initialize track assignment
+        # Video tracks: Background=1, Subject=2, Foreground=3
+        video_track_mapping = {"Background": 1, "Subject": 2, "Foreground": 3}
+        # Audio tracks: start at 1, dynamically assigned
+        audio_next_track = 1
+
+        # Keep track of audio track usage, mapping to end times
+        audio_track_end_times = {}
+        def get_transform(layer_name, shot_number, template_name="chad_vs_soyjak_2_panels"):
+            
+            # Template for the transform of the image layers
+            # This could be loaded from a configuration file or database
+            templates = {
+                    "default": {
+                        "Background": {"position": {"x": 0, "y": 0}, "scale": 1.0, "rotation": 0},
+                    "Subject": {"position": {"x": 0, "y": 0}, "scale": 1.0, "rotation": 0},
+                    "Foreground": {"position": {"x": 0, "y": 0}, "scale": 1.0, "rotation": 0},
+                },
+                "split_screen": {
+                    "Background": {"position": {"x": 0, "y": 0}, "scale": 1.0, "rotation": 0},
+                    "Subject": {"position": {"x": -320, "y": 0}, "scale": 0.5, "rotation": 0},
+                    "Foreground": {"position": {"x": 320, "y": 0}, "scale": 0.5, "rotation": 0},
+                },
+                "chad_vs_soyjak_2_panels": {
+                    "Background": {"position": {"x": 0, "y": 0}, "scale": 1.0, "rotation": 0},
+                    "Subject": {"position": {"x": -320, "y": 0}, "scale": 0.5, "rotation": 0},
+                    "Foreground": {"position": {"x": 320, "y": 0}, "scale": 0.5, "rotation": 0},
+                },
+                # Add more templates as needed
+            }
+        
+            return templates.get(template_name, templates["default"]).get(layer_name, templates["default"][layer_name])
+
         logging.info(f"Processing video idea with {len(video_idea.shots)} shots")
         for shot_index, shot in enumerate(video_idea.shots):
             logging.info(f"Processing shot {shot_index + 1}")
 
             shot_duration = float(shot.duration)
+            
 
-            # Image layers
+
+                    # Image layers
             for layer_name in ["Background", "Subject", "Foreground"]:
                 images = [img for img in shot.images if img.layer == layer_name]
                 for image in images:
+                    clip_path = f"{layer_name.lower()}_{shot.shot_number}.png"
+                    cloudinary_url = f"https://res.cloudinary.com/{cloudinary_cloud_name}/video/{clip_path}"
+                    
+                    # Get the transform for this layer
+                    transform = get_transform(layer_name, shot.shot_number)
+                    
                     commands["message"]["actions"].append(
                         {
                             "action": "insert_clip",
                             "clip": {
-                                "clipPath": f"/path/to/{layer_name.lower()}_{shot.shot_number}.png",
+                                "clipPath": clip_path,
+                                "url": cloudinary_url,
                                 "length": float(image.duration),
-                                "track": {"Background": 1, "Subject": 2, "Foreground": 3}[layer_name],
+                                "track": video_track_mapping[layer_name],
                                 "start": current_time,
                                 "speed": 1.0,
+                                "assetType": "video",
+                                "transform": transform  # Add the transform here
                             },
                         }
                     )
                     total_commands += 1
-                    logging.info(f"Added {layer_name} image for shot {shot.shot_number}")
+                    logging.info(f"Added {layer_name} image for shot {shot.shot_number} to video track {video_track_mapping[layer_name]}")
 
             # Sound effects
-            for i, sound in enumerate(shot.sound_effects):
+            for sound in shot.sound_effects:
+                clip_path = f"{sound.layer.lower()}_{shot.shot_number}.wav"
+                cloudinary_url = f"https://res.cloudinary.com/{cloudinary_cloud_name}/video/upload/{clip_path}"
+
+                # Assign audio track dynamically
+                assigned_track = None
+                for track, end_time in audio_track_end_times.items():
+                    if current_time >= end_time:
+                        assigned_track = track
+                        break
+                if assigned_track is None:
+                    # Assign a new track
+                    assigned_track = audio_next_track
+                    audio_next_track += 1
+                # Update end time for the track
+                audio_track_end_times[assigned_track] = current_time + float(sound.duration)
                 commands["message"]["actions"].append(
                     {
                         "action": "insert_clip",
                         "clip": {
-                            "clipPath": f"/path/to/{sound.layer.lower()}_{shot.shot_number}.wav",
+                            "clipPath": clip_path,
+                            "url": cloudinary_url,
                             "length": float(sound.duration),
-                            "track": 4 + i,
+                            "track": assigned_track,
                             "start": current_time,
                             "speed": 1.0,
+                            "assetType": "audio",
                         },
                     }
                 )
                 total_commands += 1
-                logging.info(f"Added {sound.layer} sound for shot {shot.shot_number}")
+                logging.info(f"Added {sound.layer} sound for shot {shot.shot_number} to audio track {assigned_track}")
 
             # Dialogue audio files
             dialogue_start_time = current_time
             for dialogue_line in shot.dialogue:
                 if dialogue_line.audio_file and dialogue_line.duration:
+                    clip_path = dialogue_line.audio_file  # Assuming audio_file is the filename
+                    cloudinary_url = f"https://res.cloudinary.com/{cloudinary_cloud_name}/video/upload/{clip_path}"
+
+                    # Assign audio track dynamically
+                    assigned_track = None
+                    for track, end_time in audio_track_end_times.items():
+                        if dialogue_start_time >= end_time:
+                            assigned_track = track
+                            break
+                    if assigned_track is None:
+                        # Assign a new track
+                        assigned_track = audio_next_track
+                        audio_next_track += 1
+                    # Update end time for the track
+                    audio_track_end_times[assigned_track] = dialogue_start_time + dialogue_line.duration
                     commands["message"]["actions"].append(
                         {
                             "action": "insert_clip",
                             "clip": {
-                                "clipPath": dialogue_line.audio_file,
+                                "clipPath": clip_path,
+                                "url": cloudinary_url,
                                 "length": dialogue_line.duration,
-                                "track": 5,  # Assuming track 5 is for dialogue
+                                "track": assigned_track,
                                 "start": dialogue_start_time,
                                 "speed": 1.0,
+                                "assetType": "audio",
                             },
                         }
                     )
                     dialogue_start_time += dialogue_line.duration
                     total_commands += 1
-                    logging.info(f"Added dialogue audio for character '{dialogue_line.character}' in shot {shot.shot_number}")
+                    logging.info(f"Added dialogue audio for character '{dialogue_line.character}' in shot {shot.shot_number} to audio track {assigned_track}")
                 else:
                     logging.warning(f"No audio file or duration for dialogue line: {dialogue_line.line}")
 
@@ -450,7 +644,7 @@ class StoryJSONGenerator(Generator):
         logging.info("Finished processing all shots")
 
         # Convert commands to JSON string
-        timeline_commands_json = json.dumps(commands, indent=2)
+        timeline_commands_json = json.dumps(commands)
         logging.info(f"Generated timeline commands JSON (first 100 chars): {timeline_commands_json[:100]}...")
 
         # Save timeline commands to file
